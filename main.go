@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -13,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/duckdb/duckdb-go/v2"
+	duckdb "github.com/duckdb/duckdb-go/v2"
 	"github.com/mohamedelhefni/siraaj/geolocation"
 	"github.com/mohamedelhefni/siraaj/internal/handler"
 	"github.com/mohamedelhefni/siraaj/internal/middleware"
@@ -29,70 +31,63 @@ var dashboardFiles embed.FS
 var landingPage string
 
 // initDatabase initializes the database connection and runs migrations
-func initDatabase(dbPath string) (*sql.DB, error) {
-	db, err := sql.Open("duckdb", dbPath)
-	if err != nil {
-		return nil, err
-	}
-
-	// Test the connection
-	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %v", err)
-	}
-
-	// Set connection pool settings
-	db.SetMaxOpenConns(5)
-	db.SetMaxIdleConns(2)
-	db.SetConnMaxLifetime(time.Hour)
-
-	// Enable DuckDB optimizations
-	// Increase memory limit to handle larger datasets (default is ~488MB)
+func initDatabase(dbPath string) (*duckdb.Connector, *sql.DB, driver.Conn, error) {
 	memoryLimit := os.Getenv("DUCKDB_MEMORY_LIMIT")
 	if memoryLimit == "" {
-		memoryLimit = "4GB" // Default to 4GB for better performance with large datasets
+		memoryLimit = "4GB"
 	}
-	if _, err = db.Exec(fmt.Sprintf("PRAGMA memory_limit='%s'", memoryLimit)); err != nil {
-		log.Printf("Warning: Could not set memory limit: %v", err)
-	} else {
-		log.Printf("✓ DuckDB memory limit set to: %s", memoryLimit)
-	}
-
 	threads := os.Getenv("DUCKDB_THREADS")
 	if threads == "" {
-		threads = "4" // Use 4 threads for M3 chip (better utilization)
-	}
-	if _, err = db.Exec(fmt.Sprintf("PRAGMA threads=%s", threads)); err != nil {
-		log.Printf("Warning: Could not set threads: %v", err)
-	} else {
-		log.Printf("✓ DuckDB threads set to: %s", threads)
+		threads = "4"
 	}
 
-	// Enable aggressive query optimizations for OLAP workloads
-	optimizations := []struct {
-		name  string
-		query string
-	}{
-		{"Enable parallel execution", "SET enable_object_cache=true"},
-		{"Disable preserve insertion order", "SET preserve_insertion_order=false"},
-		{"Enable query profiling", "SET enable_profiling=false"}, // Disable profiling in production
-		{"Set temp directory", "SET temp_directory='/tmp/duckdb_temp'"},
-		{"Enable parallel Parquet scan", "SET enable_http_metadata_cache=true"},
-		{"Force parallel execution", "SET force_parallelism=true"},
-		{"Optimize for throughput", "SET experimental_parallel_csv=true"},
-	}
-
-	for _, opt := range optimizations {
-		if _, err := db.Exec(opt.query); err != nil {
-			log.Printf("Warning: Could not apply %s: %v", opt.name, err)
+	connector, err := duckdb.NewConnector(dbPath, func(execer driver.ExecerContext) error {
+		bootQueries := []string{
+			fmt.Sprintf("PRAGMA memory_limit='%s'", memoryLimit),
+			fmt.Sprintf("PRAGMA threads=%s", threads),
+			"SET enable_object_cache=true",
+			"SET preserve_insertion_order=false",
+			"SET temp_directory='/tmp/duckdb_temp'",
+			"SET enable_http_metadata_cache=true",
 		}
+		for _, q := range bootQueries {
+			if _, err := execer.ExecContext(context.Background(), q, nil); err != nil {
+				log.Printf("Warning: Could not apply %s: %v", q, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create connector: %v", err)
 	}
+
+	db := sql.OpenDB(connector)
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(time.Hour)
+
+	if err := db.Ping(); err != nil {
+		connector.Close()
+		return nil, nil, nil, fmt.Errorf("failed to ping database: %v", err)
+	}
+
+	log.Printf("✓ DuckDB memory limit set to: %s", memoryLimit)
+	log.Printf("✓ DuckDB threads set to: %s", threads)
 
 	// Run migrations
 	if err := migrations.Migrate(db); err != nil {
-		return nil, fmt.Errorf("failed to run migrations: %v", err)
+		connector.Close()
+		return nil, nil, nil, fmt.Errorf("failed to run migrations: %v", err)
 	}
 
-	return db, nil
+	// Create a dedicated connection for the Appender
+	appenderConn, err := connector.Connect(context.Background())
+	if err != nil {
+		connector.Close()
+		return nil, nil, nil, fmt.Errorf("failed to create appender connection: %v", err)
+	}
+
+	return connector, db, appenderConn, nil
 }
 
 func main() {
@@ -117,7 +112,7 @@ func main() {
 		dbPath = "data/analytics.db"
 	}
 
-	db, err := initDatabase(dbPath)
+	connector, db, appenderConn, err := initDatabase(dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -125,12 +120,15 @@ func main() {
 		if err := db.Close(); err != nil {
 			log.Printf("Warning: failed to close database: %v", err)
 		}
+		if err := connector.Close(); err != nil {
+			log.Printf("Warning: failed to close connector: %v", err)
+		}
 	}()
 
 	log.Println("✓ DuckDB initialized successfully")
 
-	// Initialize repository directly with DuckDB
-	baseRepo := repository.NewEventRepository(db)
+	// Initialize repository with DuckDB + dedicated Appender connection
+	baseRepo := repository.NewEventRepository(db, appenderConn)
 	defer func() {
 		if err := baseRepo.Close(); err != nil {
 			log.Printf("Warning: failed to close repository: %v", err)

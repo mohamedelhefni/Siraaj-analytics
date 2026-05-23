@@ -78,10 +78,7 @@ func (h *EventHandler) TrackEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-		log.Printf("Error encoding response: %v", err)
-	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // TrackBatchEvents handles bulk event tracking from SDK
@@ -163,25 +160,7 @@ func (h *EventHandler) TrackBatchEvents(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Log batch processing summary
-	if botCount > 0 {
-		log.Printf("📦 Batch processed: %d events (%d bots detected)", len(batchRequest.Events), botCount)
-	} else {
-		log.Printf("📦 Batch processed: %d events", len(batchRequest.Events))
-	}
-
-	// Prepare success response
-	w.Header().Set("Content-Type", "application/json")
-	response := map[string]any{
-		"status":     "ok",
-		"total":      len(batchRequest.Events),
-		"successful": len(batchRequest.Events),
-		"failed":     0,
-	}
-
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Error encoding batch response: %v", err)
-	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *EventHandler) GetStats(w http.ResponseWriter, r *http.Request) {

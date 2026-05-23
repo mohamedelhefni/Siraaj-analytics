@@ -5,75 +5,31 @@ import (
 	"strings"
 )
 
-// Common bot user agent patterns
-var botPatterns = []*regexp.Regexp{
+// Single combined regex for all known bot patterns — one MatchString call instead of 40+
+var botPattern = regexp.MustCompile(`(?i)` +
 	// Search engine bots
-	regexp.MustCompile(`(?i)googlebot`),
-	regexp.MustCompile(`(?i)bingbot`),
-	regexp.MustCompile(`(?i)yahoo`),
-	regexp.MustCompile(`(?i)duckduckbot`),
-	regexp.MustCompile(`(?i)baiduspider`),
-	regexp.MustCompile(`(?i)yandex`),
-	regexp.MustCompile(`(?i)slurp`), // Yahoo Slurp
-
+	`googlebot|bingbot|yahoo|duckduckbot|baiduspider|yandex|slurp|` +
 	// Social media bots
-	regexp.MustCompile(`(?i)facebookexternalhit`),
-	regexp.MustCompile(`(?i)twitterbot`),
-	regexp.MustCompile(`(?i)linkedinbot`),
-	regexp.MustCompile(`(?i)whatsapp`),
-	regexp.MustCompile(`(?i)telegrambot`),
-	regexp.MustCompile(`(?i)discordbot`),
-	regexp.MustCompile(`(?i)slackbot`),
-
+	`facebookexternalhit|twitterbot|linkedinbot|whatsapp|telegrambot|discordbot|slackbot|` +
 	// SEO/Monitoring bots
-	regexp.MustCompile(`(?i)ahrefsbot`),
-	regexp.MustCompile(`(?i)semrushbot`),
-	regexp.MustCompile(`(?i)mj12bot`), // Majestic
-	regexp.MustCompile(`(?i)dotbot`),
-	regexp.MustCompile(`(?i)rogerbot`),
-	regexp.MustCompile(`(?i)screaming frog`),
-	regexp.MustCompile(`(?i)sitebulb`),
-
+	`ahrefsbot|semrushbot|mj12bot|dotbot|rogerbot|screaming frog|sitebulb|` +
 	// Generic bot indicators
-	regexp.MustCompile(`(?i)\bbot\b`),
-	regexp.MustCompile(`(?i)\bcrawler\b`),
-	regexp.MustCompile(`(?i)\bspider\b`),
-	regexp.MustCompile(`(?i)\bscraper\b`),
-	regexp.MustCompile(`(?i)\bfetcher\b`),
-
-	// Headless browsers (often used for scraping)
-	regexp.MustCompile(`(?i)headlesschrome`),
-	regexp.MustCompile(`(?i)phantomjs`),
-	regexp.MustCompile(`(?i)selenium`),
-	regexp.MustCompile(`(?i)webdriver`),
-	regexp.MustCompile(`(?i)puppeteer`),
-
+	`\bbot\b|\bcrawler\b|\bspider\b|\bscraper\b|\bfetcher\b|` +
+	// Headless browsers
+	`headlesschrome|phantomjs|selenium|webdriver|puppeteer|` +
 	// Monitoring services
-	regexp.MustCompile(`(?i)pingdom`),
-	regexp.MustCompile(`(?i)uptimerobot`),
-	regexp.MustCompile(`(?i)newrelic`),
-	regexp.MustCompile(`(?i)statuscake`),
-	regexp.MustCompile(`(?i)sitechecker`),
-
+	`pingdom|uptimerobot|newrelic|statuscake|sitechecker|` +
 	// Archiving/Indexing
-	regexp.MustCompile(`(?i)archive\.org`),
-	regexp.MustCompile(`(?i)ia_archiver`),
-	regexp.MustCompile(`(?i)wayback`),
+	`archive\.org|ia_archiver|wayback`)
 
-	// HTTP libraries
-	regexp.MustCompile(`(?i)^curl`),
-	regexp.MustCompile(`(?i)^wget`),
-	regexp.MustCompile(`(?i)^python-requests`),
-	regexp.MustCompile(`(?i)^go-http-client`),
-	regexp.MustCompile(`(?i)^axios`),
-	regexp.MustCompile(`(?i)^httpie`),
-}
+// Separate regex for patterns that must match at start of string
+var httpLibPattern = regexp.MustCompile(`(?i)^(curl|wget|python-requests|go-http-client|axios|httpie)`)
 
 // Additional suspicious patterns
 var suspiciousPatterns = []string{
-	"http",    // HTTP libraries often don't include full user agents
-	"library", // Generic library indicators
-	"fetcher", // Data fetching tools
+	"http",
+	"library",
+	"fetcher",
 	"monitoring",
 	"check",
 }
@@ -81,20 +37,21 @@ var suspiciousPatterns = []string{
 // IsBot determines if a user agent string belongs to a bot
 func IsBot(userAgent string) bool {
 	if userAgent == "" {
-		return true // Empty user agent is suspicious
+		return true
 	}
 
-	// Normalize user agent
 	ua := strings.TrimSpace(userAgent)
 
-	// Check against known bot patterns
-	for _, pattern := range botPatterns {
-		if pattern.MatchString(ua) {
-			return true
-		}
+	// Single regex check for all known bot patterns
+	if botPattern.MatchString(ua) {
+		return true
 	}
 
-	// Additional heuristics for suspicious user agents
+	// Check HTTP library patterns (anchored to start)
+	if httpLibPattern.MatchString(ua) {
+		return true
+	}
+
 	uaLower := strings.ToLower(ua)
 
 	// Very short user agents are often bots
@@ -113,7 +70,6 @@ func IsBot(userAgent string) bool {
 		strings.Contains(uaLower, "firefox") ||
 		strings.Contains(uaLower, "edge")
 
-	// If it doesn't look like a browser and contains suspicious keywords
 	if !hasCommonBrowser {
 		for _, suspicious := range suspiciousPatterns {
 			if strings.Contains(uaLower, suspicious) {

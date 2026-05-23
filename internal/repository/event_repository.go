@@ -2,18 +2,25 @@ package repository
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	duckdb "github.com/duckdb/duckdb-go/v2"
 	"github.com/mohamedelhefni/siraaj/internal/domain"
 )
 
 const (
 	// Batch insert size for optimal performance
 	BatchInsertSize = 5000
+	// Buffer size before triggering a flush
+	DefaultBufferSize = 10000
+	// Flush interval for the background flusher
+	DefaultFlushInterval = 1 * time.Second
 )
 
 type EventRepository interface {
@@ -44,53 +51,85 @@ type EventRepository interface {
 }
 
 type eventRepository struct {
-	db         *sql.DB
-	buffer     []domain.Event
-	insertStmt *sql.Stmt
+	db           *sql.DB
+	buffer       []domain.Event
+	appenderConn driver.Conn
+	appender     *duckdb.Appender
+	idCounter    atomic.Uint64
+	mu           sync.Mutex
+	stopChan     chan struct{}
+	doneChan     chan struct{}
 }
 
-func NewEventRepository(db *sql.DB) EventRepository {
+func NewEventRepository(db *sql.DB, appenderConn driver.Conn) EventRepository {
 	repo := &eventRepository{
-		db:     db,
-		buffer: make([]domain.Event, 0, BatchInsertSize),
+		db:           db,
+		buffer:       make([]domain.Event, 0, DefaultBufferSize),
+		appenderConn: appenderConn,
+		stopChan:     make(chan struct{}),
+		doneChan:     make(chan struct{}),
 	}
 
-	stmt, err := db.Prepare(`
-		INSERT INTO events (
-			id, timestamp, date_hour, date_day, date_month,
-			event_name, user_id, session_id, session_duration,
-			url, referrer, user_agent, ip, country,
-			browser, os, device, is_bot, project_id, channel
-		) VALUES (nextval('id_sequence'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		log.Printf("Warning: failed to prepare insert statement: %v", err)
-	} else {
-		repo.insertStmt = stmt
+	// Initialize ID counter from current max to avoid conflicts
+	var maxID uint64
+	if err := db.QueryRow("SELECT COALESCE(MAX(id), 0) FROM events").Scan(&maxID); err != nil {
+		log.Printf("Warning: could not fetch max id, starting from 0: %v", err)
 	}
+	repo.idCounter.Store(maxID)
+
+	// Create the DuckDB Appender — bypasses SQL parser, 10-100x faster than INSERT
+	appender, err := duckdb.NewAppender(appenderConn, "", "", "events")
+	if err != nil {
+		log.Printf("Warning: failed to create appender, falling back to INSERT: %v", err)
+	} else {
+		repo.appender = appender
+	}
+
+	// Start background flusher
+	go repo.backgroundFlusher()
 
 	return repo
+}
+
+// backgroundFlusher periodically flushes the buffer to DuckDB
+func (r *eventRepository) backgroundFlusher() {
+	defer close(r.doneChan)
+	ticker := time.NewTicker(DefaultFlushInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.stopChan:
+			// Final flush before shutdown
+			if err := r.flushBuffer(); err != nil {
+				log.Printf("Error during final flush: %v", err)
+			}
+			return
+		case <-ticker.C:
+			if err := r.flushBuffer(); err != nil {
+				log.Printf("Error during periodic flush: %v", err)
+			}
+		}
+	}
 }
 
 func (r *eventRepository) Create(event domain.Event) error {
 	if event.ProjectID == "" {
 		event.ProjectID = "default"
 	}
-
 	event.Timestamp = event.Timestamp.UTC()
 
-	dateHour := event.Timestamp.Truncate(time.Hour)
-	dateDay := time.Date(event.Timestamp.Year(), event.Timestamp.Month(), event.Timestamp.Day(), 0, 0, 0, 0, time.UTC)
-	dateMonth := time.Date(event.Timestamp.Year(), event.Timestamp.Month(), 1, 0, 0, 0, 0, time.UTC)
+	r.mu.Lock()
+	r.buffer = append(r.buffer, event)
+	shouldFlush := len(r.buffer) >= DefaultBufferSize
+	r.mu.Unlock()
 
-	if r.insertStmt != nil {
-		_, err := r.insertStmt.Exec(
-			event.Timestamp, dateHour, dateDay, dateMonth,
-			event.EventName, event.UserID, event.SessionID, event.SessionDuration,
-			event.URL, event.Referrer, event.UserAgent, event.IP, event.Country,
-			event.Browser, event.OS, event.Device, event.IsBot, event.ProjectID, event.Channel,
-		)
-		return err
+	if shouldFlush {
+		go func() {
+			if err := r.flushBuffer(); err != nil {
+				log.Printf("Error flushing buffer: %v", err)
+			}
+		}()
 	}
 
 	return nil
@@ -108,6 +147,70 @@ func (r *eventRepository) CreateBatch(events []domain.Event) error {
 		events[i].Timestamp = events[i].Timestamp.UTC()
 	}
 
+	r.mu.Lock()
+	r.buffer = append(r.buffer, events...)
+	shouldFlush := len(r.buffer) >= DefaultBufferSize
+	r.mu.Unlock()
+
+	if shouldFlush {
+		go func() {
+			if err := r.flushBuffer(); err != nil {
+				log.Printf("Error flushing buffer: %v", err)
+			}
+		}()
+	}
+
+	return nil
+}
+
+// flushBuffer drains the buffer and writes all events via the Appender
+func (r *eventRepository) flushBuffer() error {
+	r.mu.Lock()
+	if len(r.buffer) == 0 {
+		r.mu.Unlock()
+		return nil
+	}
+	// Swap buffer
+	events := r.buffer
+	r.buffer = make([]domain.Event, 0, DefaultBufferSize)
+	r.mu.Unlock()
+
+	if r.appender != nil {
+		return r.flushWithAppender(events)
+	}
+	return r.flushWithSQL(events)
+}
+
+// flushWithAppender uses DuckDB's native Appender for maximum throughput
+func (r *eventRepository) flushWithAppender(events []domain.Event) error {
+	for _, event := range events {
+		id := r.idCounter.Add(1)
+		dateHour := event.Timestamp.Truncate(time.Hour)
+		dateDay := time.Date(event.Timestamp.Year(), event.Timestamp.Month(), event.Timestamp.Day(), 0, 0, 0, 0, time.UTC)
+		dateMonth := time.Date(event.Timestamp.Year(), event.Timestamp.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+		if err := r.appender.AppendRow(
+			id,
+			event.Timestamp, dateHour, dateDay, dateMonth,
+			event.EventName, event.UserID, event.SessionID, int32(event.SessionDuration),
+			event.URL, event.Referrer, event.UserAgent, event.IP, event.Country,
+			event.Browser, event.OS, event.Device, event.IsBot, event.ProjectID, event.Channel,
+		); err != nil {
+			log.Printf("Error appending row: %v", err)
+			return fmt.Errorf("appender error: %w", err)
+		}
+	}
+
+	if err := r.appender.Flush(); err != nil {
+		return fmt.Errorf("appender flush error: %w", err)
+	}
+
+	log.Printf("💾 Flushed %d events via Appender", len(events))
+	return nil
+}
+
+// flushWithSQL is the fallback when the Appender is unavailable
+func (r *eventRepository) flushWithSQL(events []domain.Event) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -126,9 +229,8 @@ func (r *eventRepository) CreateBatch(events []domain.Event) error {
 		dateDay := time.Date(event.Timestamp.Year(), event.Timestamp.Month(), event.Timestamp.Day(), 0, 0, 0, 0, time.UTC)
 		dateMonth := time.Date(event.Timestamp.Year(), event.Timestamp.Month(), 1, 0, 0, 0, 0, time.UTC)
 
-		valueStrings = append(valueStrings, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+		valueStrings = append(valueStrings, "(nextval('id_sequence'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 		valueArgs = append(valueArgs,
-			0, // Placeholder for ID, will be replaced with nextval in the query
 			event.Timestamp, dateHour, dateDay, dateMonth,
 			event.EventName, event.UserID, event.SessionID, event.SessionDuration,
 			event.URL, event.Referrer, event.UserAgent, event.IP, event.Country,
@@ -136,8 +238,7 @@ func (r *eventRepository) CreateBatch(events []domain.Event) error {
 		)
 	}
 
-	// Build the query with placeholders, then replace the ID placeholders with nextval
-	placeholderQuery := fmt.Sprintf(`
+	query := fmt.Sprintf(`
 		INSERT INTO events (
 			id, timestamp, date_hour, date_day, date_month,
 			event_name, user_id, session_id, session_duration,
@@ -146,33 +247,33 @@ func (r *eventRepository) CreateBatch(events []domain.Event) error {
 		) VALUES %s
 	`, strings.Join(valueStrings, ","))
 
-	// Replace the first ? in each row with nextval('id_sequence')
-	// This is safe because we know the first ? in each (?, ?, ...) is for ID
-	query := strings.ReplaceAll(placeholderQuery, "(?, ", "(nextval('id_sequence'), ")
-
-	// Remove the placeholder ID values from valueArgs
-	filteredArgs := make([]any, 0, len(events)*19)
-	for i := range events {
-		// Skip the first argument (ID placeholder) for each event
-		start := i * 20
-		filteredArgs = append(filteredArgs, valueArgs[start+1:start+20]...)
-	}
-
-	_, err = tx.Exec(query, filteredArgs...)
-	if err != nil {
+	if _, err = tx.Exec(query, valueArgs...); err != nil {
 		return fmt.Errorf("failed to insert batch: %w", err)
 	}
 
+	log.Printf("💾 Flushed %d events via SQL INSERT", len(events))
 	return tx.Commit()
 }
 
 func (r *eventRepository) Flush() error {
-	return nil // No buffering needed with direct inserts
+	return r.flushBuffer()
 }
 
 func (r *eventRepository) Close() error {
-	if r.insertStmt != nil {
-		return r.insertStmt.Close()
+	// Signal background flusher to stop
+	close(r.stopChan)
+	// Wait for final flush to complete
+	<-r.doneChan
+
+	if r.appender != nil {
+		if err := r.appender.Close(); err != nil {
+			log.Printf("Warning: failed to close appender: %v", err)
+		}
+	}
+	if r.appenderConn != nil {
+		if err := r.appenderConn.Close(); err != nil {
+			log.Printf("Warning: failed to close appender connection: %v", err)
+		}
 	}
 	return nil
 }
