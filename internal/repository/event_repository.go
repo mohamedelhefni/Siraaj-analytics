@@ -1500,29 +1500,32 @@ func buildWhereClause(startDate, endDate time.Time, filters map[string]string) (
 			whereClause += " AND is_bot = FALSE"
 		}
 	}
-	// Add metric filter - filter events based on the selected metric
-	if metric, ok := filters["metric"]; ok && metric != "" {
-		switch metric {
-		case "page_views":
-			whereClause += " AND event_name = 'page_view'"
-		case "users":
-			// No additional filter needed for users metric
-		case "visits":
-			// No additional filter needed for visits metric
-		case "events":
-			// No additional filter needed for all events
-		case "bounce_rate":
-			// Bounce rate is calculated from page_view events
-			whereClause += " AND event_name = 'page_view'"
-		case "visit_duration":
-			// Visit duration uses all events in a session
-		case "views_per_visit":
-			// Views per visit is calculated from page_view events
-			whereClause += " AND event_name = 'page_view'"
-		}
-	}
 
 	return whereClause, args
+}
+
+// metricAggClause returns the SQL aggregate expression for a given metric.
+// Used by breakdown endpoints so their counts match the selected metric.
+func metricAggClause(metric string) string {
+	switch metric {
+	case "users":
+		return "APPROX_COUNT_DISTINCT(user_id)"
+	case "visits":
+		return "APPROX_COUNT_DISTINCT(session_id)"
+	default:
+		return "COUNT(*)"
+	}
+}
+
+// metricPageViewFilter returns an extra WHERE fragment that restricts rows to
+// page_view events for metrics that are inherently page-view-based.
+func metricPageViewFilter(metric string) string {
+	switch metric {
+	case "page_views", "bounce_rate", "views_per_visit":
+		return " AND event_name = 'page_view'"
+	default:
+		return ""
+	}
 }
 
 // GetTopStats returns the main statistics (counts, rates, etc.)
@@ -1846,11 +1849,12 @@ func (r *eventRepository) GetTopPages(startDate, endDate time.Time, limit int, f
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 	queryArgs := append(args, limit)
 
-	// Top pages
+	// Top pages — always filter to page_view events so custom events with URLs
+	// don't pollute the pages breakdown.
 	query := fmt.Sprintf(`
 		SELECT url, COUNT(*) as count 
 		FROM events 
-		WHERE %s AND url IS NOT NULL AND url != ''
+		WHERE %s AND event_name = 'page_view' AND url IS NOT NULL AND url != ''
 		GROUP BY url 
 		ORDER BY count DESC 
 		LIMIT ?
@@ -1981,14 +1985,17 @@ func (r *eventRepository) GetTopCountries(startDate, endDate time.Time, limit in
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 	queryArgs := append(args, limit)
 
+	agg := metricAggClause(filters["metric"])
+	pvFilter := metricPageViewFilter(filters["metric"])
+
 	query := fmt.Sprintf(`
-		SELECT country, COUNT(*) as count 
+		SELECT country, %s as count 
 		FROM events 
-		WHERE %s AND country IS NOT NULL AND country != ''
+		WHERE %s%s AND country IS NOT NULL AND country != ''
 		GROUP BY country 
 		ORDER BY count DESC 
 		LIMIT ?
-	`, whereClause)
+	`, agg, whereClause, pvFilter)
 
 	rows, err := r.db.Query(query, queryArgs...)
 	if err != nil {
@@ -2021,19 +2028,22 @@ func (r *eventRepository) GetTopSources(startDate, endDate time.Time, limit int,
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 	queryArgs := append(args, limit)
 
+	agg := metricAggClause(filters["metric"])
+	pvFilter := metricPageViewFilter(filters["metric"])
+
 	query := fmt.Sprintf(`
 		SELECT 
 			CASE 
 				WHEN referrer = '' OR referrer IS NULL THEN 'Direct'
 				ELSE referrer
 			END as source,
-			COUNT(*) as count 
-		FROM events 
-		WHERE %s
-		GROUP BY source 
-		ORDER BY count DESC 
-		LIMIT ?
-	`, whereClause)
+			%s as count 
+			FROM events 
+			WHERE %s%s
+			GROUP BY source 
+			ORDER BY count DESC 
+			LIMIT ?
+	`, agg, whereClause, pvFilter)
 
 	rows, err := r.db.Query(query, queryArgs...)
 	if err != nil {
@@ -2066,14 +2076,18 @@ func (r *eventRepository) GetTopEvents(startDate, endDate time.Time, limit int, 
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 	queryArgs := append(args, limit)
 
+	// For the events breakdown panel, always show all event types (never restrict by event_name).
+	// Use the metric aggregate so unique-users / visits selections are reflected in the counts.
+	agg := metricAggClause(filters["metric"])
+
 	query := fmt.Sprintf(`
-		SELECT event_name, COUNT(*) as count 
+		SELECT event_name, %s as count 
 		FROM events 
 		WHERE %s
 		GROUP BY event_name 
 		ORDER BY count DESC 
 		LIMIT ?
-	`, whereClause)
+	`, agg, whereClause)
 
 	rows, err := r.db.Query(query, queryArgs...)
 	if err != nil {
@@ -2105,35 +2119,38 @@ func (r *eventRepository) GetTopEvents(startDate, endDate time.Time, limit int, 
 func (r *eventRepository) GetBrowsersDevicesOS(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error) {
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 
+	agg := metricAggClause(filters["metric"])
+	pvFilter := metricPageViewFilter(filters["metric"])
+
 	// Combined query using UNION ALL to reduce round-trips
 	query := fmt.Sprintf(`
 		SELECT * FROM (
-			SELECT 'browser' AS type, browser AS name, COUNT(*) AS count
+			SELECT 'browser' AS type, browser AS name, %s AS count
 			FROM events
-			WHERE %s AND browser IS NOT NULL AND browser != ''
+			WHERE %s%s AND browser IS NOT NULL AND browser != ''
 			GROUP BY browser
 			ORDER BY count DESC
 			LIMIT %d
 		)
 		UNION ALL
 		SELECT * FROM (
-			SELECT 'device' AS type, device AS name, COUNT(*) AS count
+			SELECT 'device' AS type, device AS name, %s AS count
 			FROM events
-			WHERE %s AND device IS NOT NULL AND device != ''
+			WHERE %s%s AND device IS NOT NULL AND device != ''
 			GROUP BY device
 			ORDER BY count DESC
 			LIMIT %d
 		)
 		UNION ALL
 		SELECT * FROM (
-			SELECT 'os' AS type, os AS name, COUNT(*) AS count
+			SELECT 'os' AS type, os AS name, %s AS count
 			FROM events
-			WHERE %s AND os IS NOT NULL AND os != ''
+			WHERE %s%s AND os IS NOT NULL AND os != ''
 			GROUP BY os
 			ORDER BY count DESC
 			LIMIT %d
 		)
-	`, whereClause, limit, whereClause, limit, whereClause, limit)
+	`, agg, whereClause, pvFilter, limit, agg, whereClause, pvFilter, limit, agg, whereClause, pvFilter, limit)
 
 	// Pass args three times (once per sub-query in the UNION ALL)
 	allArgs := make([]any, 0, len(args)*3)
