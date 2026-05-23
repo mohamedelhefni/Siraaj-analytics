@@ -419,28 +419,28 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 	var selectClause string
 	switch metric {
 	case "users":
-		selectClause = "APPROX_COUNT_DISTINCT( user_id) as count"
+		selectClause = "APPROX_COUNT_DISTINCT(user_id) as count"
 	case "visits":
-		selectClause = "APPROX_COUNT_DISTINCT( session_id) as count"
+		selectClause = "APPROX_COUNT_DISTINCT(session_id) as count"
 	case "page_views":
 		selectClause = "COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) as count"
 	case "events":
 		selectClause = "COUNT(*) as count"
 	case "views_per_visit":
-		selectClause = "CAST(COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) AS FLOAT) / NULLIF(APPROX_COUNT_DISTINCT( session_id), 0) as count"
+		selectClause = "CAST(COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) AS FLOAT) / NULLIF(APPROX_COUNT_DISTINCT(session_id), 0) as count"
 	case "bounce_rate":
 		// For bounce rate in timeline, we need to use a different approach
 		// We'll calculate it per time period using a window function or aggregation
 		// This is a simplified version that's much faster
 		selectClause = `
 			CASE 
-				WHEN APPROX_COUNT_DISTINCT( session_id) = 0 THEN 0
-				ELSE CAST(SUM(CASE WHEN event_name = 'page_view' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / NULLIF(APPROX_COUNT_DISTINCT( session_id), 0)
+				WHEN APPROX_COUNT_DISTINCT(session_id) = 0 THEN 0
+				ELSE CAST(SUM(CASE WHEN event_name = 'page_view' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / NULLIF(APPROX_COUNT_DISTINCT(session_id), 0)
 			END as count`
 	case "visit_duration":
 		selectClause = "AVG(CASE WHEN session_duration > 0 THEN session_duration END) as count"
 	default: // Default to users
-		selectClause = "APPROX_COUNT_DISTINCT( user_id) as count"
+		selectClause = "APPROX_COUNT_DISTINCT(user_id) as count"
 	}
 
 	// Determine granularity based on date range
@@ -900,52 +900,19 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 	stats["top_sources"] = topSources
 
 	// Calculate trends by comparing with previous period
+	// Use date_day partitioning for better performance with large datasets
 	duration := endDate.Sub(startDate)
 	prevStartDate := startDate.Add(-duration)
 	prevEndDate := startDate
 
-	prevWhereClause := "timestamp BETWEEN ? AND ?"
-	prevArgs := []interface{}{prevStartDate, prevEndDate}
-
-	// Apply same filters to previous period
-	if projectID, ok := filters["project"]; ok && projectID != "" {
-		prevWhereClause += " AND project_id = ?"
-		prevArgs = append(prevArgs, projectID)
-	}
-	if source, ok := filters["source"]; ok && source != "" {
-		prevWhereClause += " AND referrer = ?"
-		prevArgs = append(prevArgs, source)
-	}
-	if country, ok := filters["country"]; ok && country != "" {
-		prevWhereClause += " AND country = ?"
-		prevArgs = append(prevArgs, country)
-	}
-	if browser, ok := filters["browser"]; ok && browser != "" {
-		prevWhereClause += " AND browser = ?"
-		prevArgs = append(prevArgs, browser)
-	}
-	if device, ok := filters["device"]; ok && device != "" {
-		prevWhereClause += " AND device = ?"
-		prevArgs = append(prevArgs, device)
-	}
-	if os, ok := filters["os"]; ok && os != "" {
-		prevWhereClause += " AND os = ?"
-		prevArgs = append(prevArgs, os)
-	}
-	if eventName, ok := filters["event"]; ok && eventName != "" {
-		prevWhereClause += " AND event_name = ?"
-		prevArgs = append(prevArgs, eventName)
-	}
-	if page, ok := filters["page"]; ok && page != "" {
-		prevWhereClause += " AND url = ?"
-		prevArgs = append(prevArgs, page)
-	}
+	// Reuse the optimized buildWhereClause function for previous period
+	prevWhereClause, prevArgs := buildWhereClause(prevStartDate, prevEndDate, filters)
 
 	prevQuery := fmt.Sprintf(`
 		SELECT 
 			COUNT(*) as total_events,
-			APPROX_COUNT_DISTINCT( user_id) as unique_users,
-			APPROX_COUNT_DISTINCT( session_id) as total_visits,
+			APPROX_COUNT_DISTINCT(user_id) as unique_users,
+			APPROX_COUNT_DISTINCT(session_id) as total_visits,
 			COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) as page_views
 		FROM events 
 		WHERE %s
@@ -978,18 +945,22 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 }
 
 func (r *eventRepository) GetOnlineUsers(timeWindow int) (map[string]interface{}, error) {
-	cutoffTime := time.Now().Add(-time.Duration(timeWindow) * time.Minute)
+	cutoffTime := time.Now().UTC().Add(-time.Duration(timeWindow) * time.Minute)
+	// Round down to the nearest hour for date_hour filtering
+	cutoffHour := cutoffTime.Truncate(time.Hour)
 
+	// Use date_hour for initial partition pruning, then filter by exact timestamp
+	// This allows DuckDB to skip scanning data from hours outside our window
 	query := `
 		SELECT 
-			APPROX_COUNT_DISTINCT( user_id) as online_users,
-			APPROX_COUNT_DISTINCT( session_id) as active_sessions
+			APPROX_COUNT_DISTINCT(user_id) as online_users,
+			APPROX_COUNT_DISTINCT(session_id) as active_sessions
 		FROM events 
-		WHERE timestamp >= ?
+		WHERE date_hour >= ? AND timestamp >= ?
 	`
 
 	var onlineUsers, activeSessions int
-	err := r.db.QueryRow(query, cutoffTime).Scan(&onlineUsers, &activeSessions)
+	err := r.db.QueryRow(query, cutoffHour, cutoffTime).Scan(&onlineUsers, &activeSessions)
 	if err != nil {
 		return nil, err
 	}
@@ -1052,8 +1023,8 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 		TimeRange: fmt.Sprintf("%s to %s", request.StartDate, request.EndDate),
 	}
 
-	// Build base WHERE clause for global filters
-	baseWhereClause := "timestamp BETWEEN ? AND ?"
+	// Build base WHERE clause for global filters using date_day partitioning for better performance
+	baseWhereClause := "date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)"
 	baseArgs := []interface{}{startDate, endDate}
 
 	if projectID, ok := request.Filters["project"]; ok && projectID != "" {
@@ -1130,8 +1101,8 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 			// First step: count all matching users
 			query := fmt.Sprintf(`
 				SELECT 
-					APPROX_COUNT_DISTINCT( user_id) as user_count,
-					APPROX_COUNT_DISTINCT( session_id) as session_count,
+					APPROX_COUNT_DISTINCT(user_id) as user_count,
+					APPROX_COUNT_DISTINCT(session_id) as session_count,
 					COUNT(*) as event_count
 				FROM events 
 				WHERE %s
@@ -1215,8 +1186,8 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 					allCteArgs = append(allCteArgs, cteArgs...)
 				} else {
 					// Subsequent steps: join with previous step
-					// Build WHERE clause with e. prefix
-					cteWhereClause = "e.timestamp BETWEEN ? AND ?"
+					// Build WHERE clause with e. prefix using date_day partitioning for better performance
+					cteWhereClause = "e.date_day >= CAST(? AS DATE) AND e.date_day <= CAST(? AS DATE)"
 					cteArgs = []interface{}{startDate, endDate}
 
 					// Add global filters with e. prefix
@@ -1286,8 +1257,8 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 			mainQuery := fmt.Sprintf(`
 				%s
 				SELECT 
-					APPROX_COUNT_DISTINCT( user_id) as user_count,
-					APPROX_COUNT_DISTINCT( session_id) as session_count,
+					APPROX_COUNT_DISTINCT(user_id) as user_count,
+					APPROX_COUNT_DISTINCT(session_id) as session_count,
 					COUNT(*) as event_count
 				FROM %s
 			`, cteBuilder.String(), currentCteName)
@@ -1534,15 +1505,15 @@ func (r *eventRepository) GetTopStats(startDate, endDate time.Time, filters map[
 	query := fmt.Sprintf(`
 		SELECT 
 			COUNT(*) as total_events,
-			APPROX_COUNT_DISTINCT( user_id) as unique_users,
-			APPROX_COUNT_DISTINCT( session_id) as total_visits,
+			APPROX_COUNT_DISTINCT(user_id) as unique_users,
+			APPROX_COUNT_DISTINCT(session_id) as total_visits,
 			COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) as page_views,
-			APPROX_COUNT_DISTINCT( CASE WHEN event_name = 'page_view' THEN session_id END) as sessions_with_views,
+			APPROX_COUNT_DISTINCT(CASE WHEN event_name = 'page_view' THEN session_id END) as sessions_with_views,
 			AVG(CASE WHEN session_duration > 0 THEN session_duration END) as avg_session_duration,
 			COUNT(CASE WHEN is_bot = TRUE THEN 1 END) as bot_events,
 			COUNT(CASE WHEN is_bot = FALSE THEN 1 END) as human_events,
-			APPROX_COUNT_DISTINCT( CASE WHEN is_bot = TRUE THEN user_id END) as bot_users,
-			APPROX_COUNT_DISTINCT( CASE WHEN is_bot = FALSE THEN user_id END) as human_users
+			APPROX_COUNT_DISTINCT(CASE WHEN is_bot = TRUE THEN user_id END) as bot_users,
+			APPROX_COUNT_DISTINCT(CASE WHEN is_bot = FALSE THEN user_id END) as human_users
 		FROM events 
 		WHERE %s
 	`, whereClause)
@@ -1619,8 +1590,8 @@ func (r *eventRepository) GetTopStats(startDate, endDate time.Time, filters map[
 	prevQuery := fmt.Sprintf(`
 		SELECT 
 			COUNT(*) as total_events,
-			APPROX_COUNT_DISTINCT( user_id) as unique_users,
-			APPROX_COUNT_DISTINCT( session_id) as total_visits,
+			APPROX_COUNT_DISTINCT(user_id) as unique_users,
+			APPROX_COUNT_DISTINCT(session_id) as total_visits,
 			COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) as page_views
 		FROM events 
 		WHERE %s
@@ -1660,25 +1631,25 @@ func (r *eventRepository) GetTimeline(startDate, endDate time.Time, filters map[
 	var selectClause string
 	switch metric {
 	case "users":
-		selectClause = "APPROX_COUNT_DISTINCT( user_id) as count"
+		selectClause = "APPROX_COUNT_DISTINCT(user_id) as count"
 	case "visits":
-		selectClause = "APPROX_COUNT_DISTINCT( session_id) as count"
+		selectClause = "APPROX_COUNT_DISTINCT(session_id) as count"
 	case "page_views":
 		selectClause = "COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) as count"
 	case "events":
 		selectClause = "COUNT(*) as count"
 	case "views_per_visit":
-		selectClause = "CAST(COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) AS FLOAT) / NULLIF(APPROX_COUNT_DISTINCT( session_id), 0) as count"
+		selectClause = "CAST(COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) AS FLOAT) / NULLIF(APPROX_COUNT_DISTINCT(session_id), 0) as count"
 	case "bounce_rate":
 		selectClause = `
 			CASE 
-				WHEN APPROX_COUNT_DISTINCT( session_id) = 0 THEN 0
-				ELSE CAST(SUM(CASE WHEN event_name = 'page_view' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / NULLIF(APPROX_COUNT_DISTINCT( session_id), 0)
+				WHEN APPROX_COUNT_DISTINCT(session_id) = 0 THEN 0
+				ELSE CAST(SUM(CASE WHEN event_name = 'page_view' THEN 1 ELSE 0 END) AS FLOAT) * 100.0 / NULLIF(APPROX_COUNT_DISTINCT(session_id), 0)
 			END as count`
 	case "visit_duration":
 		selectClause = "AVG(CASE WHEN session_duration > 0 THEN session_duration END) as count"
 	default:
-		selectClause = "APPROX_COUNT_DISTINCT( user_id) as count"
+		selectClause = "APPROX_COUNT_DISTINCT(user_id) as count"
 	}
 
 	// Determine granularity based on date range
@@ -2200,8 +2171,8 @@ func (r *eventRepository) GetChannels(startDate, endDate time.Time, filters map[
 		SELECT 
 			COALESCE(channel, 'Unknown') as channel_name,
 			COUNT(*) as total_events,
-			APPROX_COUNT_DISTINCT( user_id) as unique_users,
-			APPROX_COUNT_DISTINCT( session_id) as total_visits,
+			APPROX_COUNT_DISTINCT(user_id) as unique_users,
+			APPROX_COUNT_DISTINCT(session_id) as total_visits,
 			COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) as page_views
 		FROM events 
 		WHERE %s
