@@ -234,7 +234,13 @@ class AnalyticsCore {
         if (useBeacon && this.config.useBeacon && typeof navigator !== 'undefined' && 'sendBeacon' in navigator) {
             this.sendBatch(events, true);
         } else {
-            const promise = this.sendBatch(events, false);
+            const promise = this.sendBatch(events, false).catch((err) => {
+                this.log('Batch error, queuing for retry:', err);
+                for (const event of events) {
+                    this.queueFailedEvent(event);
+                }
+                this.scheduleRetry();
+            });
             this.pendingRequests.add(promise);
 
             try {
@@ -312,6 +318,8 @@ class AnalyticsCore {
         }
     }
 
+    // Performs the network request only — throws on failure, no internal queuing.
+    // Callers are responsible for catching and handling retry/queuing logic.
     private async sendBatch(events: EventData[], useBeacon: boolean): Promise<void> {
         if (events.length === 0) return;
 
@@ -332,11 +340,12 @@ class AnalyticsCore {
             return;
         }
 
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
 
-            const response = await fetch(endpoint, {
+        let response: Response;
+        try {
+            response = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -345,25 +354,15 @@ class AnalyticsCore {
                 keepalive: true,
                 signal: controller.signal,
             });
-
+        } finally {
             clearTimeout(timeoutId);
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            this.log('Batch sent:', events.length);
-        } catch (err) {
-            this.log('Batch error:', err);
-
-            for (const event of events) {
-                this.queueFailedEvent(event);
-            }
-
-            if (!this.retryTimer) {
-                this.scheduleRetry();
-            }
         }
+
+        if (!response!.ok) {
+            throw new Error(`HTTP ${response!.status}`);
+        }
+
+        this.log('Batch sent:', events.length);
     }
 
     private queueFailedEvent(event: EventData): void {
@@ -380,12 +379,16 @@ class AnalyticsCore {
     }
 
     private scheduleRetry(): void {
-        if (this.retryTimer) return;
+        if (this.retryTimer || this.failedQueue.length === 0) return;
+
+        const now = Date.now();
+        const nextTime = Math.min(...this.failedQueue.map(item => item.nextRetry));
+        const delay = Math.max(nextTime - now, 100);
 
         this.retryTimer = window.setTimeout(() => {
             this.retryTimer = null;
             this.processFailedQueue();
-        }, this.RETRY_BASE_DELAY);
+        }, delay);
     }
 
     private async processFailedQueue(): Promise<void> {
@@ -406,20 +409,13 @@ class AnalyticsCore {
         this.failedQueue = notReady;
 
         if (readyToRetry.length === 0) {
-            if (notReady.length > 0) {
-                const nextRetry = Math.min(...notReady.map(item => item.nextRetry));
-                const delay = Math.min(nextRetry - now, this.RETRY_MAX_DELAY);
-                this.retryTimer = window.setTimeout(() => {
-                    this.retryTimer = null;
-                    this.processFailedQueue();
-                }, delay);
-            }
+            this.scheduleRetry();
             return;
         }
 
         for (const item of readyToRetry) {
             if (item.retries >= this.config.maxRetries) {
-                this.log('Max retries:', item.event.event_name);
+                this.log('Max retries reached, dropping:', item.event.event_name);
                 continue;
             }
 
@@ -439,7 +435,7 @@ class AnalyticsCore {
             }
         }
 
-        if (this.failedQueue.length > 0 && !this.retryTimer) {
+        if (this.failedQueue.length > 0) {
             this.scheduleRetry();
         }
     }
