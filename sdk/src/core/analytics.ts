@@ -235,11 +235,15 @@ class AnalyticsCore {
             this.sendBatch(events, true);
         } else {
             const promise = this.sendBatch(events, false).catch((err) => {
-                this.log('Batch error, queuing for retry:', err);
-                for (const event of events) {
-                    this.queueFailedEvent(event);
+                this.log('Batch error:', err);
+                if (this.isRetryableError(err)) {
+                    for (const event of events) {
+                        this.queueFailedEvent(event);
+                    }
+                    this.scheduleRetry();
+                } else {
+                    this.log('Non-retryable error, dropping batch');
                 }
-                this.scheduleRetry();
             });
             this.pendingRequests.add(promise);
 
@@ -413,25 +417,33 @@ class AnalyticsCore {
             return;
         }
 
-        for (const item of readyToRetry) {
+        const eligible = readyToRetry.filter(item => {
             if (item.retries >= this.config.maxRetries) {
                 this.log('Max retries reached, dropping:', item.event.event_name);
-                continue;
+                return false;
             }
+            return true;
+        });
 
+        if (eligible.length > 0) {
             try {
-                await this.sendBatch([item.event], false);
+                await this.sendBatch(eligible.map(item => item.event), false);
             } catch (err) {
-                const delay = Math.min(
-                    this.RETRY_BASE_DELAY * Math.pow(2, item.retries),
-                    this.RETRY_MAX_DELAY
-                );
-
-                this.failedQueue.push({
-                    event: item.event,
-                    retries: item.retries + 1,
-                    nextRetry: Date.now() + delay,
-                });
+                if (this.isRetryableError(err)) {
+                    for (const item of eligible) {
+                        const delay = Math.min(
+                            this.RETRY_BASE_DELAY * Math.pow(2, item.retries),
+                            this.RETRY_MAX_DELAY
+                        );
+                        this.failedQueue.push({
+                            event: item.event,
+                            retries: item.retries + 1,
+                            nextRetry: Date.now() + delay,
+                        });
+                    }
+                } else {
+                    this.log('Non-retryable error, dropping retry batch');
+                }
             }
         }
 
@@ -499,9 +511,13 @@ class AnalyticsCore {
         window.addEventListener('error', this.errorHandler);
 
         this.rejectionHandler = (e: PromiseRejectionEvent) => {
-            this.trackError(e.reason, {
-                type: 'unhandled_promise_rejection',
-            });
+            const reason = e.reason;
+            const error = reason instanceof Error
+                ? reason
+                : typeof reason === 'string'
+                    ? reason
+                    : String(reason ?? 'Unknown rejection');
+            this.trackError(error, { type: 'unhandled_promise_rejection' });
         };
         window.addEventListener('unhandledrejection', this.rejectionHandler);
 
@@ -676,11 +692,13 @@ class AnalyticsCore {
 
         const ua = navigator.userAgent;
 
-        if (ua.includes('Edg/')) return 'Edge';
-        if (ua.includes('Chrome') && !ua.includes('Edg')) return 'Chrome';
-        if (ua.includes('Safari') && !ua.includes('Chrome')) return 'Safari';
+        // Order matters: specific engines before generic Chrome
+        if (ua.includes('Edg/') || ua.includes('Edge/')) return 'Edge';
+        if (ua.includes('OPR/') || ua.includes('Opera')) return 'Opera';
+        if (ua.includes('SamsungBrowser')) return 'Samsung';
+        if (ua.includes('Chrome')) return 'Chrome';
+        if (ua.includes('Safari')) return 'Safari';
         if (ua.includes('Firefox')) return 'Firefox';
-        if (ua.includes('Opera') || ua.includes('OPR')) return 'Opera';
         if (ua.includes('MSIE') || ua.includes('Trident')) return 'IE';
 
         return 'Unknown';
@@ -717,71 +735,87 @@ class AnalyticsCore {
     }
 
     private detectChannel(referrer: string, url: string): string {
-        // Priority 1: Paid channels (utm_medium or utm_source contains paid/cpc/ppc)
-        const urlLower = url.toLowerCase();
+        let params: URLSearchParams;
+        let referrerHostname = '';
+        let currentHostname = '';
+
+        try {
+            const parsed = new URL(url);
+            params = parsed.searchParams;
+            currentHostname = parsed.hostname;
+        } catch {
+            params = new URLSearchParams();
+        }
+
+        try {
+            referrerHostname = new URL(referrer).hostname;
+        } catch {
+            // non-parseable referrer treated as empty
+        }
+
+        const utmMedium = params.get('utm_medium')?.toLowerCase() ?? '';
+        const utmSource = params.get('utm_source')?.toLowerCase() ?? '';
         const referrerLower = referrer.toLowerCase();
 
+        // Priority 1: Paid channels
         if (
-            urlLower.includes('utm_medium=cpc') ||
-            urlLower.includes('utm_medium=ppc') ||
-            urlLower.includes('utm_medium=paid') ||
-            urlLower.includes('utm_source=paid') ||
-            urlLower.includes('gclid=') ||
-            urlLower.includes('fbclid=') ||
-            referrerLower.includes('/ads') ||
-            referrerLower.includes('adwords') ||
-            referrerLower.includes('googleads')
+            utmMedium === 'cpc' || utmMedium === 'ppc' || utmMedium === 'paid' ||
+            utmSource === 'paid' ||
+            params.has('gclid') ||
+            params.has('fbclid') ||
+            referrerLower.includes('googleads') ||
+            referrerLower.includes('adwords')
         ) {
             return 'Paid';
         }
 
-        // Priority 2: Direct traffic (no referrer or same domain)
-        if (!referrer || referrer === '') {
-            return 'Direct';
-        }
-
-        // Extract domain from referrer
-        try {
-            const referrerUrl = new URL(referrer);
-            const currentUrl = new URL(url);
-
-            if (referrerUrl.hostname === currentUrl.hostname) {
-                return 'Direct';
-            }
-        } catch (e) {
-            // If URL parsing fails, treat as direct
+        // Priority 2: Direct (no referrer or same domain)
+        if (!referrer || referrerHostname === currentHostname) {
             return 'Direct';
         }
 
         // Priority 3: Social media
         const socialDomains = [
-            'facebook.com', 'fb.com', 'twitter.com', 't.co', 'linkedin.com',
+            'facebook.com', 'fb.com', 'twitter.com', 't.co', 'x.com', 'linkedin.com',
             'instagram.com', 'tiktok.com', 'pinterest.com', 'reddit.com',
             'youtube.com', 'snapchat.com', 'whatsapp.com', 'telegram.org',
-            'vk.com', 'weibo.com', 'tumblr.com', 'discord.com', 'twitch.tv'
+            'vk.com', 'weibo.com', 'tumblr.com', 'discord.com', 'twitch.tv',
         ];
 
         for (const domain of socialDomains) {
-            if (referrerLower.includes(domain)) {
+            if (referrerHostname === domain || referrerHostname.endsWith('.' + domain)) {
                 return 'Social';
             }
         }
 
         // Priority 4: Organic search
         const searchEngines = [
-            'google.com/search', 'google.', 'bing.com', 'yahoo.com',
-            'duckduckgo.com', 'baidu.com', 'yandex.com', 'ask.com',
-            'aol.com', 'ecosia.org', 'qwant.com', 'startpage.com'
+            'google.com', 'bing.com', 'yahoo.com', 'duckduckgo.com',
+            'baidu.com', 'yandex.com', 'yandex.ru', 'ask.com',
+            'ecosia.org', 'qwant.com', 'startpage.com',
         ];
 
         for (const engine of searchEngines) {
-            if (referrerLower.includes(engine)) {
+            if (referrerHostname === engine || referrerHostname.endsWith('.' + engine)) {
                 return 'Organic';
             }
         }
 
-        // Priority 5: Referral (all other external sources)
+        // Priority 5: Referral
         return 'Referral';
+    }
+
+    private isRetryableError(err: unknown): boolean {
+        if (!(err instanceof Error)) return true;
+        // Network errors (no response) are always retryable
+        if (err.name === 'AbortError' || err.name === 'TypeError') return true;
+        // HTTP errors: only 5xx and 429 (Too Many Requests) are transient
+        const match = err.message.match(/^HTTP (\d+)/);
+        if (match) {
+            const status = parseInt(match[1], 10);
+            return status >= 500 || status === 429;
+        }
+        return true;
     }
 
     private isDNTEnabled(): boolean {
