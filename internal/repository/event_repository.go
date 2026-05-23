@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mohamedelhefni/siraaj/internal/domain"
@@ -279,10 +280,7 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 		}
 	}
 
-	// Use a single query with CTEs for better performance
-
-	// Single optimized query using CTEs to scan data once
-	// Only select columns needed for aggregation to reduce memory usage
+	// Combined main stats + bounce rate in a single table scan via CTE
 	optimizedQuery := fmt.Sprintf(`
 	WITH date_filtered AS (
 		SELECT 
@@ -307,17 +305,29 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 			APPROX_COUNT_DISTINCT(CASE WHEN is_bot = TRUE THEN user_id END) as bot_users,
 			APPROX_COUNT_DISTINCT(CASE WHEN is_bot = FALSE THEN user_id END) as human_users
 		FROM date_filtered
+	),
+	bounce AS (
+		SELECT COUNT(*) as single_page_sessions
+		FROM (
+			SELECT session_id
+			FROM date_filtered
+			WHERE event_name = 'page_view'
+			GROUP BY session_id
+			HAVING COUNT(*) = 1
+		)
 	)
-	SELECT * FROM event_stats;
+	SELECT e.*, b.single_page_sessions FROM event_stats e, bounce b
 	`, whereClause)
 
 	var totalEvents, uniqueUsers, totalVisits, pageViews, sessionsWithViews int
 	var avgSessionDuration sql.NullFloat64
 	var botEvents, humanEvents, botUsers, humanUsers int
+	var singlePageSessions int
 
 	err := r.db.QueryRow(optimizedQuery, args...).Scan(
 		&totalEvents, &uniqueUsers, &totalVisits, &pageViews, &sessionsWithViews,
 		&avgSessionDuration, &botEvents, &humanEvents, &botUsers, &humanUsers,
+		&singlePageSessions,
 	)
 	if err != nil {
 		return nil, err
@@ -346,29 +356,10 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 		stats["bot_percentage"] = 0.0
 	}
 
-	// Calculate bounce rate: sessions with only 1 page view / total sessions
-	// Optimized to avoid nested aggregation
-	var bounceRate float64
-	if totalVisits > 0 {
-		bounceRateQuery := fmt.Sprintf(`
-			WITH session_view_counts AS (
-				SELECT 
-					session_id,
-					COUNT(*) as view_count
-				FROM events 
-				WHERE %s AND event_name = 'page_view'
-				GROUP BY session_id
-			)
-			SELECT COUNT(*) as single_page_sessions
-			FROM session_view_counts
-			WHERE view_count = 1
-		`, whereClause)
-
-		var singlePageSessions int
-		err = r.db.QueryRow(bounceRateQuery, args...).Scan(&singlePageSessions)
-		if err == nil && sessionsWithViews > 0 {
-			bounceRate = float64(singlePageSessions) / float64(sessionsWithViews) * 100
-		}
+	// Bounce rate from combined query
+	bounceRate := 0.0
+	if sessionsWithViews > 0 {
+		bounceRate = float64(singlePageSessions) / float64(sessionsWithViews) * 100
 	}
 	stats["bounce_rate"] = bounceRate
 
@@ -616,210 +607,145 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 	}
 	stats["top_pages"] = topPages
 
-	// Entry Pages (first page in each session)
-	// Using ROW_NUMBER() instead of DISTINCT ON for better DuckDB performance
-	entryPagesQuery := fmt.Sprintf(`
-		WITH ranked_pages AS (
-			SELECT 
-				session_id, 
-				url,
-				ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp ASC) AS rn
-			FROM events 
-			WHERE %s AND event_name = 'page_view' AND url IS NOT NULL AND url != ''
-		),
-		entry_pages AS (
-			SELECT session_id, url
-			FROM ranked_pages
-			WHERE rn = 1
+	// Entry + Exit Pages combined in a single query using UNION ALL
+	entryExitQuery := fmt.Sprintf(`
+		SELECT * FROM (
+			SELECT 'entry' AS type, url, COUNT(*) AS count
+			FROM (
+				SELECT session_id, url
+				FROM (
+					SELECT session_id, url,
+						ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp ASC) AS rn
+					FROM events
+					WHERE %s AND event_name = 'page_view' AND url IS NOT NULL AND url != ''
+				) WHERE rn = 1
+			)
+			GROUP BY url
+			ORDER BY count DESC
+			LIMIT ?
 		)
-		SELECT url, COUNT(*) as count
-		FROM entry_pages
-		GROUP BY url
-		ORDER BY count DESC
-		LIMIT ?
-	`, whereClause)
+		UNION ALL
+		SELECT * FROM (
+			SELECT 'exit' AS type, url, COUNT(*) AS count
+			FROM (
+				SELECT session_id, url
+				FROM (
+					SELECT session_id, url,
+						ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp DESC) AS rn
+					FROM events
+					WHERE %s AND event_name = 'page_view' AND url IS NOT NULL AND url != ''
+				) WHERE rn = 1
+			)
+			GROUP BY url
+			ORDER BY count DESC
+			LIMIT ?
+		)
+	`, whereClause, whereClause)
 
-	entryPagesRows, err := r.db.Query(entryPagesQuery, queryArgs...)
+	entryExitArgs := make([]any, 0, len(args)*2+2)
+	entryExitArgs = append(entryExitArgs, args...)
+	entryExitArgs = append(entryExitArgs, limit)
+	entryExitArgs = append(entryExitArgs, args...)
+	entryExitArgs = append(entryExitArgs, limit)
+
+	entryExitRows, err := r.db.Query(entryExitQuery, entryExitArgs...)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		if entryPagesRows != nil {
-			if err := entryPagesRows.Close(); err != nil {
+		if entryExitRows != nil {
+			if err := entryExitRows.Close(); err != nil {
 				log.Printf("Warning: failed to close rows: %v", err)
 			}
 		}
 	}()
 
 	entryPages := []map[string]any{}
-	for entryPagesRows.Next() {
-		var url string
+	exitPages := []map[string]any{}
+	for entryExitRows.Next() {
+		var pageType, url string
 		var count int
-		if err := entryPagesRows.Scan(&url, &count); err != nil {
+		if err := entryExitRows.Scan(&pageType, &url, &count); err != nil {
 			continue
 		}
-		entryPages = append(entryPages, map[string]any{
-			"url":   url,
-			"count": count,
-		})
+		item := map[string]any{"url": url, "count": count}
+		if pageType == "entry" {
+			entryPages = append(entryPages, item)
+		} else {
+			exitPages = append(exitPages, item)
+		}
 	}
 	stats["entry_pages"] = entryPages
-
-	// Exit Pages (last page in each session)
-	// Using ROW_NUMBER() instead of DISTINCT ON for better DuckDB performance
-	exitPagesQuery := fmt.Sprintf(`
-		WITH ranked_pages AS (
-			SELECT 
-				session_id, 
-				url,
-				ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp DESC) AS rn
-			FROM events 
-			WHERE %s AND event_name = 'page_view' AND url IS NOT NULL AND url != ''
-		),
-		exit_pages AS (
-			SELECT session_id, url
-			FROM ranked_pages
-			WHERE rn = 1
-		)
-		SELECT url, COUNT(*) as count
-		FROM exit_pages
-		GROUP BY url
-		ORDER BY count DESC
-		LIMIT ?
-	`, whereClause)
-
-	exitPagesRows, err := r.db.Query(exitPagesQuery, queryArgs...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if exitPagesRows != nil {
-			if err := exitPagesRows.Close(); err != nil {
-				log.Printf("Warning: failed to close rows: %v", err)
-			}
-		}
-	}()
-
-	exitPages := []map[string]any{}
-	for exitPagesRows.Next() {
-		var url string
-		var count int
-		if err := exitPagesRows.Scan(&url, &count); err != nil {
-			continue
-		}
-		exitPages = append(exitPages, map[string]any{
-			"url":   url,
-			"count": count,
-		})
-	}
 	stats["exit_pages"] = exitPages
 
-	// Browsers
-	query = fmt.Sprintf(`
-		SELECT browser, COUNT(*) as count 
-		FROM events 
-		WHERE %s AND browser IS NOT NULL AND browser != ''
-		GROUP BY browser 
-		ORDER BY count DESC
-		LIMIT ?
-	`, whereClause)
+	// Browsers + Devices + OS combined in a single query using UNION ALL
+	bdoQuery := fmt.Sprintf(`
+		SELECT * FROM (
+			SELECT 'browser' AS type, browser AS name, COUNT(*) AS count
+			FROM events
+			WHERE %s AND browser IS NOT NULL AND browser != ''
+			GROUP BY browser
+			ORDER BY count DESC
+			LIMIT %d
+		)
+		UNION ALL
+		SELECT * FROM (
+			SELECT 'device' AS type, device AS name, COUNT(*) AS count
+			FROM events
+			WHERE %s AND device IS NOT NULL AND device != ''
+			GROUP BY device
+			ORDER BY count DESC
+			LIMIT %d
+		)
+		UNION ALL
+		SELECT * FROM (
+			SELECT 'os' AS type, os AS name, COUNT(*) AS count
+			FROM events
+			WHERE %s AND os IS NOT NULL AND os != ''
+			GROUP BY os
+			ORDER BY count DESC
+			LIMIT %d
+		)
+	`, whereClause, limit, whereClause, limit, whereClause, limit)
 
-	browsersRows, err := r.db.Query(query, queryArgs...)
+	bdoArgs := make([]any, 0, len(args)*3)
+	bdoArgs = append(bdoArgs, args...)
+	bdoArgs = append(bdoArgs, args...)
+	bdoArgs = append(bdoArgs, args...)
+
+	bdoRows, err := r.db.Query(bdoQuery, bdoArgs...)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		if browsersRows != nil {
-			if err := browsersRows.Close(); err != nil {
+		if bdoRows != nil {
+			if err := bdoRows.Close(); err != nil {
 				log.Printf("Warning: failed to close rows: %v", err)
 			}
 		}
 	}()
 
 	browsers := []map[string]any{}
-	for browsersRows.Next() {
-		var browser string
+	devices := []map[string]any{}
+	operatingSystems := []map[string]any{}
+	for bdoRows.Next() {
+		var itemType, name string
 		var count int
-		if err := browsersRows.Scan(&browser, &count); err != nil {
+		if err := bdoRows.Scan(&itemType, &name, &count); err != nil {
 			continue
 		}
-		browsers = append(browsers, map[string]any{
-			"name":  browser,
-			"count": count,
-		})
+		item := map[string]any{"name": name, "count": count}
+		switch itemType {
+		case "browser":
+			browsers = append(browsers, item)
+		case "device":
+			devices = append(devices, item)
+		case "os":
+			operatingSystems = append(operatingSystems, item)
+		}
 	}
 	stats["browsers"] = browsers
-
-	// Devices
-	query = fmt.Sprintf(`
-		SELECT device, COUNT(*) as count 
-		FROM events 
-		WHERE %s AND device IS NOT NULL AND device != ''
-		GROUP BY device 
-		ORDER BY count DESC
-		LIMIT ?
-	`, whereClause)
-
-	devicesRows, err := r.db.Query(query, queryArgs...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if devicesRows != nil {
-			if err := devicesRows.Close(); err != nil {
-				log.Printf("Warning: failed to close rows: %v", err)
-			}
-		}
-	}()
-
-	devices := []map[string]any{}
-	for devicesRows.Next() {
-		var device string
-		var count int
-		if err := devicesRows.Scan(&device, &count); err != nil {
-			continue
-		}
-		devices = append(devices, map[string]any{
-			"name":  device,
-			"count": count,
-		})
-	}
 	stats["devices"] = devices
-
-	// Operating Systems
-	query = fmt.Sprintf(`
-		SELECT os, COUNT(*) as count 
-		FROM events 
-		WHERE %s AND os IS NOT NULL AND os != ''
-		GROUP BY os 
-		ORDER BY count DESC
-		LIMIT ?
-	`, whereClause)
-
-	osRows, err := r.db.Query(query, queryArgs...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if osRows != nil {
-			if err := osRows.Close(); err != nil {
-				log.Printf("Warning: failed to close rows: %v", err)
-			}
-		}
-	}()
-
-	operatingSystems := []map[string]any{}
-	for osRows.Next() {
-		var os string
-		var count int
-		if err := osRows.Scan(&os, &count); err != nil {
-			continue
-		}
-		operatingSystems = append(operatingSystems, map[string]any{
-			"name":  os,
-			"count": count,
-		})
-	}
 	stats["os"] = operatingSystems
 
 	// Top Countries
@@ -1502,34 +1428,93 @@ func buildWhereClause(startDate, endDate time.Time, filters map[string]string) (
 func (r *eventRepository) GetTopStats(startDate, endDate time.Time, filters map[string]string) (map[string]any, error) {
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 
-	// Get current period stats
-	query := fmt.Sprintf(`
-		SELECT 
-			COUNT(*) as total_events,
-			APPROX_COUNT_DISTINCT(user_id) as unique_users,
-			APPROX_COUNT_DISTINCT(session_id) as total_visits,
-			COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) as page_views,
-			APPROX_COUNT_DISTINCT(CASE WHEN event_name = 'page_view' THEN session_id END) as sessions_with_views,
-			AVG(CASE WHEN session_duration > 0 THEN session_duration END) as avg_session_duration,
-			COUNT(CASE WHEN is_bot = TRUE THEN 1 END) as bot_events,
-			COUNT(CASE WHEN is_bot = FALSE THEN 1 END) as human_events,
-			APPROX_COUNT_DISTINCT(CASE WHEN is_bot = TRUE THEN user_id END) as bot_users,
-			APPROX_COUNT_DISTINCT(CASE WHEN is_bot = FALSE THEN user_id END) as human_users
-		FROM events 
-		WHERE %s
-	`, whereClause)
+	// Prepare trend comparison arguments upfront so both queries can run in parallel
+	duration := endDate.Sub(startDate)
+	prevStartDate := startDate.Add(-duration)
+	prevEndDate := startDate
+	prevWhereClause, prevArgs := buildWhereClause(prevStartDate, prevEndDate, filters)
 
-	var totalEvents, uniqueUsers, totalVisits, pageViews, sessionsWithViews int
-	var botEvents, humanEvents, botUsers, humanUsers int
-	var avgSessionDuration sql.NullFloat64
+	var (
+		wg sync.WaitGroup
 
-	fmt.Println("query is", query, args)
-	err := r.db.QueryRow(query, args...).Scan(
-		&totalEvents, &uniqueUsers, &totalVisits, &pageViews, &sessionsWithViews,
-		&avgSessionDuration, &botEvents, &humanEvents, &botUsers, &humanUsers,
+		// Main query results
+		totalEvents, uniqueUsers, totalVisits, pageViews, sessionsWithViews int
+		botEvents, humanEvents, botUsers, humanUsers                        int
+		avgSessionDuration                                                  sql.NullFloat64
+		singlePageSessions                                                  int
+		mainErr                                                             error
+
+		// Trend query results
+		prevTotalEvents, prevUniqueUsers, prevTotalVisits, prevPageViews int
+		trendErr                                                         error
 	)
-	if err != nil {
-		return nil, err
+
+	// Combined query: main stats + bounce rate in a single table scan via CTE
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		query := fmt.Sprintf(`
+			WITH filtered AS (
+				SELECT user_id, session_id, event_name, session_duration, is_bot
+				FROM events WHERE %s
+			),
+			event_stats AS (
+				SELECT
+					COUNT(*) as total_events,
+					APPROX_COUNT_DISTINCT(user_id) as unique_users,
+					APPROX_COUNT_DISTINCT(session_id) as total_visits,
+					COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) as page_views,
+					APPROX_COUNT_DISTINCT(CASE WHEN event_name = 'page_view' THEN session_id END) as sessions_with_views,
+					AVG(CASE WHEN session_duration > 0 THEN session_duration END) as avg_session_duration,
+					COUNT(CASE WHEN is_bot = TRUE THEN 1 END) as bot_events,
+					COUNT(CASE WHEN is_bot = FALSE THEN 1 END) as human_events,
+					APPROX_COUNT_DISTINCT(CASE WHEN is_bot = TRUE THEN user_id END) as bot_users,
+					APPROX_COUNT_DISTINCT(CASE WHEN is_bot = FALSE THEN user_id END) as human_users
+				FROM filtered
+			),
+			bounce AS (
+				SELECT COUNT(*) as single_page_sessions
+				FROM (
+					SELECT session_id
+					FROM filtered
+					WHERE event_name = 'page_view'
+					GROUP BY session_id
+					HAVING COUNT(*) = 1
+				)
+			)
+			SELECT e.*, b.single_page_sessions FROM event_stats e, bounce b
+		`, whereClause)
+
+		mainErr = r.db.QueryRow(query, args...).Scan(
+			&totalEvents, &uniqueUsers, &totalVisits, &pageViews, &sessionsWithViews,
+			&avgSessionDuration, &botEvents, &humanEvents, &botUsers, &humanUsers,
+			&singlePageSessions,
+		)
+	}()
+
+	// Trend comparison: previous period stats (runs in parallel with main query)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		prevQuery := fmt.Sprintf(`
+			SELECT
+				COUNT(*) as total_events,
+				APPROX_COUNT_DISTINCT(user_id) as unique_users,
+				APPROX_COUNT_DISTINCT(session_id) as total_visits,
+				COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) as page_views
+			FROM events
+			WHERE %s
+		`, prevWhereClause)
+
+		trendErr = r.db.QueryRow(prevQuery, prevArgs...).Scan(
+			&prevTotalEvents, &prevUniqueUsers, &prevTotalVisits, &prevPageViews,
+		)
+	}()
+
+	wg.Wait()
+
+	if mainErr != nil {
+		return nil, mainErr
 	}
 
 	stats := make(map[string]any)
@@ -1538,39 +1523,19 @@ func (r *eventRepository) GetTopStats(startDate, endDate time.Time, filters map[
 	stats["total_visits"] = totalVisits
 	stats["page_views"] = pageViews
 
-	// Average session duration
 	if avgSessionDuration.Valid {
 		stats["avg_session_duration"] = avgSessionDuration.Float64
 	} else {
 		stats["avg_session_duration"] = 0.0
 	}
 
-	// Calculate bounce rate
-	var bounceRate float64
+	// Bounce rate from combined query
+	bounceRate := 0.0
 	if sessionsWithViews > 0 {
-		bounceRateQuery := fmt.Sprintf(`
-			WITH session_view_counts AS (
-				SELECT 
-					session_id,
-					COUNT(*) as view_count
-				FROM events 
-				WHERE %s AND event_name = 'page_view'
-				GROUP BY session_id
-			)
-			SELECT COUNT(*) as single_page_sessions
-			FROM session_view_counts
-			WHERE view_count = 1
-		`, whereClause)
-
-		var singlePageSessions int
-		err = r.db.QueryRow(bounceRateQuery, args...).Scan(&singlePageSessions)
-		if err == nil {
-			bounceRate = float64(singlePageSessions) / float64(sessionsWithViews) * 100
-		}
+		bounceRate = float64(singlePageSessions) / float64(sessionsWithViews) * 100
 	}
 	stats["bounce_rate"] = bounceRate
 
-	// Bot statistics
 	stats["bot_events"] = botEvents
 	stats["human_events"] = humanEvents
 	stats["bot_users"] = botUsers
@@ -1582,25 +1547,8 @@ func (r *eventRepository) GetTopStats(startDate, endDate time.Time, filters map[
 		stats["bot_percentage"] = 0.0
 	}
 
-	// Calculate trends by comparing with previous period
-	duration := endDate.Sub(startDate)
-	prevStartDate := startDate.Add(-duration)
-	prevEndDate := startDate
-
-	prevWhereClause, prevArgs := buildWhereClause(prevStartDate, prevEndDate, filters)
-	prevQuery := fmt.Sprintf(`
-		SELECT 
-			COUNT(*) as total_events,
-			APPROX_COUNT_DISTINCT(user_id) as unique_users,
-			APPROX_COUNT_DISTINCT(session_id) as total_visits,
-			COUNT(CASE WHEN event_name = 'page_view' THEN 1 END) as page_views
-		FROM events 
-		WHERE %s
-	`, prevWhereClause)
-
-	var prevTotalEvents, prevUniqueUsers, prevTotalVisits, prevPageViews int
-	err = r.db.QueryRow(prevQuery, prevArgs...).Scan(&prevTotalEvents, &prevUniqueUsers, &prevTotalVisits, &prevPageViews)
-	if err == nil {
+	// Apply trend data from parallel query
+	if trendErr == nil {
 		stats["prev_total_events"] = prevTotalEvents
 		stats["prev_unique_users"] = prevUniqueUsers
 		stats["prev_total_visits"] = prevTotalVisits
@@ -2055,113 +2003,79 @@ func (r *eventRepository) GetTopEvents(startDate, endDate time.Time, limit int, 
 // GetBrowsersDevicesOS returns browsers, devices, and operating systems
 func (r *eventRepository) GetBrowsersDevicesOS(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error) {
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
-	queryArgs := append(args, limit)
 
-	result := make(map[string]any)
+	// Combined query using UNION ALL to reduce round-trips
+	query := fmt.Sprintf(`
+		SELECT * FROM (
+			SELECT 'browser' AS type, browser AS name, COUNT(*) AS count
+			FROM events
+			WHERE %s AND browser IS NOT NULL AND browser != ''
+			GROUP BY browser
+			ORDER BY count DESC
+			LIMIT %d
+		)
+		UNION ALL
+		SELECT * FROM (
+			SELECT 'device' AS type, device AS name, COUNT(*) AS count
+			FROM events
+			WHERE %s AND device IS NOT NULL AND device != ''
+			GROUP BY device
+			ORDER BY count DESC
+			LIMIT %d
+		)
+		UNION ALL
+		SELECT * FROM (
+			SELECT 'os' AS type, os AS name, COUNT(*) AS count
+			FROM events
+			WHERE %s AND os IS NOT NULL AND os != ''
+			GROUP BY os
+			ORDER BY count DESC
+			LIMIT %d
+		)
+	`, whereClause, limit, whereClause, limit, whereClause, limit)
 
-	// Browsers
-	browsersQuery := fmt.Sprintf(`
-		SELECT browser, COUNT(*) as count 
-		FROM events 
-		WHERE %s AND browser IS NOT NULL AND browser != ''
-		GROUP BY browser 
-		ORDER BY count DESC
-		LIMIT ?
-	`, whereClause)
+	// Pass args three times (once per sub-query in the UNION ALL)
+	allArgs := make([]any, 0, len(args)*3)
+	allArgs = append(allArgs, args...)
+	allArgs = append(allArgs, args...)
+	allArgs = append(allArgs, args...)
 
-	browsersRows, err := r.db.Query(browsersQuery, queryArgs...)
+	rows, err := r.db.Query(query, allArgs...)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		if err := browsersRows.Close(); err != nil {
+		if err := rows.Close(); err != nil {
 			log.Printf("Warning: failed to close rows: %v", err)
 		}
 	}()
 
 	browsers := []map[string]any{}
-	for browsersRows.Next() {
-		var browser string
-		var count int
-		if err := browsersRows.Scan(&browser, &count); err != nil {
-			continue
-		}
-		browsers = append(browsers, map[string]any{
-			"name":  browser,
-			"count": count,
-		})
-	}
-	result["browsers"] = browsers
-
-	// Devices
-	devicesQuery := fmt.Sprintf(`
-		SELECT device, COUNT(*) as count 
-		FROM events 
-		WHERE %s AND device IS NOT NULL AND device != ''
-		GROUP BY device 
-		ORDER BY count DESC
-		LIMIT ?
-	`, whereClause)
-
-	devicesRows, err := r.db.Query(devicesQuery, queryArgs...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err := devicesRows.Close(); err != nil {
-			log.Printf("Warning: failed to close rows: %v", err)
-		}
-	}()
-
 	devices := []map[string]any{}
-	for devicesRows.Next() {
-		var device string
-		var count int
-		if err := devicesRows.Scan(&device, &count); err != nil {
-			continue
-		}
-		devices = append(devices, map[string]any{
-			"name":  device,
-			"count": count,
-		})
-	}
-	result["devices"] = devices
-
-	// Operating Systems
-	osQuery := fmt.Sprintf(`
-		SELECT os, COUNT(*) as count 
-		FROM events 
-		WHERE %s AND os IS NOT NULL AND os != ''
-		GROUP BY os 
-		ORDER BY count DESC
-		LIMIT ?
-	`, whereClause)
-
-	osRows, err := r.db.Query(osQuery, queryArgs...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err := osRows.Close(); err != nil {
-			log.Printf("Warning: failed to close rows: %v", err)
-		}
-	}()
-
 	operatingSystems := []map[string]any{}
-	for osRows.Next() {
-		var os string
+
+	for rows.Next() {
+		var itemType, name string
 		var count int
-		if err := osRows.Scan(&os, &count); err != nil {
+		if err := rows.Scan(&itemType, &name, &count); err != nil {
 			continue
 		}
-		operatingSystems = append(operatingSystems, map[string]any{
-			"name":  os,
-			"count": count,
-		})
+		item := map[string]any{"name": name, "count": count}
+		switch itemType {
+		case "browser":
+			browsers = append(browsers, item)
+		case "device":
+			devices = append(devices, item)
+		case "os":
+			operatingSystems = append(operatingSystems, item)
+		}
 	}
-	result["os"] = operatingSystems
 
-	return result, nil
+	return map[string]any{
+		"browsers": browsers,
+		"devices":  devices,
+		"os":       operatingSystems,
+	}, nil
 }
 
 // GetChannels returns traffic breakdown by channel with optional filters
