@@ -41,7 +41,7 @@ func BenchmarkEventBatchCreation(b *testing.B) {
 		b.Run(fmt.Sprintf("BatchSize-%d", size), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				events := make([]domain.Event, size)
-				for j := 0; j < size; j++ {
+				for j := range size {
 					events[j] = domain.Event{
 						Timestamp: time.Now(),
 						EventName: "batch_benchmark",

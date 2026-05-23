@@ -172,7 +172,7 @@ func (h *EventHandler) TrackBatchEvents(w http.ResponseWriter, r *http.Request) 
 
 	// Prepare success response
 	w.Header().Set("Content-Type", "application/json")
-	response := map[string]interface{}{
+	response := map[string]any{
 		"status":     "ok",
 		"total":      len(batchRequest.Events),
 		"successful": len(batchRequest.Events),
@@ -213,10 +213,9 @@ func (h *EventHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		var l int
 		if n, err := fmt.Sscanf(limitStr, "%d", &l); err == nil && n == 1 {
-			limit = l
-			if limit > 1000 {
-				limit = 1000 // Cap at 1000
-			}
+			limit = min(l,
+				// Cap at 1000
+				1000)
 		}
 	}
 
@@ -289,10 +288,7 @@ func (h *EventHandler) GetEvents(w http.ResponseWriter, r *http.Request) {
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		var l int
 		if n, err := fmt.Sscanf(limitStr, "%d", &l); err == nil && n == 1 {
-			limit = l
-			if limit > 1000 {
-				limit = 1000
-			}
+			limit = min(l, 1000)
 		}
 	}
 
@@ -322,10 +318,7 @@ func (h *EventHandler) GetOnlineUsers(w http.ResponseWriter, r *http.Request) {
 	if windowStr := r.URL.Query().Get("window"); windowStr != "" {
 		var tw int
 		if _, err := fmt.Sscanf(windowStr, "%d", &tw); err == nil {
-			timeWindow = tw
-			if timeWindow > 60 {
-				timeWindow = 60
-			}
+			timeWindow = min(tw, 60)
 		}
 	}
 
@@ -358,7 +351,7 @@ func (h *EventHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
 
 func (h *EventHandler) Health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"status":      "ok",
 		"database":    "duckdb",
 		"version":     "1.0.0",
@@ -382,7 +375,7 @@ func (h *EventHandler) GeoTest(w http.ResponseWriter, r *http.Request) {
 	geo := h.geoService.LookupOrDefault(ip)
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"ip":           ip,
 		"country":      geo.Country,
 		"country_code": geo.CountryCode,
@@ -505,10 +498,9 @@ func parseFiltersAndDates(r *http.Request) (startDate, endDate time.Time, limit 
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		var l int
 		if n, err := fmt.Sscanf(limitStr, "%d", &l); err == nil && n == 1 {
-			limit = l
-			if limit > 1000 {
-				limit = 1000 // Cap at 1000
-			}
+			limit = min(l,
+				// Cap at 1000
+				1000)
 		}
 	}
 

@@ -18,24 +18,24 @@ const (
 type EventRepository interface {
 	Create(event domain.Event) error
 	CreateBatch(events []domain.Event) error
-	GetEvents(startDate, endDate time.Time, limit, offset int) (map[string]interface{}, error)
-	GetStats(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]interface{}, error)
-	GetOnlineUsers(timeWindow int) (map[string]interface{}, error)
+	GetEvents(startDate, endDate time.Time, limit, offset int) (map[string]any, error)
+	GetStats(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error)
+	GetOnlineUsers(timeWindow int) (map[string]any, error)
 	GetProjects() ([]string, error)
 	GetFunnelAnalysis(request domain.FunnelRequest) (*domain.FunnelAnalysisResult, error)
 
 	// New focused endpoints
-	GetTopStats(startDate, endDate time.Time, filters map[string]string) (map[string]interface{}, error)
-	GetTimeline(startDate, endDate time.Time, filters map[string]string) (map[string]interface{}, error)
-	GetTopPages(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]interface{}, error)
-	GetTopCountries(startDate, endDate time.Time, limit int, filters map[string]string) ([]map[string]interface{}, error)
-	GetTopSources(startDate, endDate time.Time, limit int, filters map[string]string) ([]map[string]interface{}, error)
-	GetTopEvents(startDate, endDate time.Time, limit int, filters map[string]string) ([]map[string]interface{}, error)
-	GetBrowsersDevicesOS(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]interface{}, error)
-	GetEntryExitPages(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]interface{}, error)
+	GetTopStats(startDate, endDate time.Time, filters map[string]string) (map[string]any, error)
+	GetTimeline(startDate, endDate time.Time, filters map[string]string) (map[string]any, error)
+	GetTopPages(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error)
+	GetTopCountries(startDate, endDate time.Time, limit int, filters map[string]string) ([]map[string]any, error)
+	GetTopSources(startDate, endDate time.Time, limit int, filters map[string]string) ([]map[string]any, error)
+	GetTopEvents(startDate, endDate time.Time, limit int, filters map[string]string) ([]map[string]any, error)
+	GetBrowsersDevicesOS(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error)
+	GetEntryExitPages(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error)
 
 	// Channel analytics
-	GetChannels(startDate, endDate time.Time, filters map[string]string) ([]map[string]interface{}, error)
+	GetChannels(startDate, endDate time.Time, filters map[string]string) ([]map[string]any, error)
 
 	// Flush and Close for graceful shutdown
 	Flush() error
@@ -118,7 +118,7 @@ func (r *eventRepository) CreateBatch(events []domain.Event) error {
 	}()
 
 	valueStrings := make([]string, 0, len(events))
-	valueArgs := make([]interface{}, 0, len(events)*19)
+	valueArgs := make([]any, 0, len(events)*19)
 
 	for _, event := range events {
 		dateHour := event.Timestamp.Truncate(time.Hour)
@@ -150,8 +150,8 @@ func (r *eventRepository) CreateBatch(events []domain.Event) error {
 	query := strings.ReplaceAll(placeholderQuery, "(?, ", "(nextval('id_sequence'), ")
 
 	// Remove the placeholder ID values from valueArgs
-	filteredArgs := make([]interface{}, 0, len(events)*19)
-	for i := 0; i < len(events); i++ {
+	filteredArgs := make([]any, 0, len(events)*19)
+	for i := range events {
 		// Skip the first argument (ID placeholder) for each event
 		start := i * 20
 		filteredArgs = append(filteredArgs, valueArgs[start+1:start+20]...)
@@ -176,7 +176,7 @@ func (r *eventRepository) Close() error {
 	return nil
 }
 
-func (r *eventRepository) GetEvents(startDate, endDate time.Time, limit, offset int) (map[string]interface{}, error) {
+func (r *eventRepository) GetEvents(startDate, endDate time.Time, limit, offset int) (map[string]any, error) {
 	query := `
 		SELECT id, timestamp, event_name, user_id, session_id, session_duration, url, referrer,
 			user_agent, ip, country, browser, os, device, is_bot, project_id, channel
@@ -219,7 +219,7 @@ func (r *eventRepository) GetEvents(startDate, endDate time.Time, limit, offset 
 		return nil, err
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"events": events,
 		"total":  total,
 		"limit":  limit,
@@ -227,8 +227,8 @@ func (r *eventRepository) GetEvents(startDate, endDate time.Time, limit, offset 
 	}, nil
 }
 
-func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]interface{}, error) {
-	stats := make(map[string]interface{})
+func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error) {
+	stats := make(map[string]any)
 
 	if limit <= 0 {
 		limit = 10
@@ -236,7 +236,7 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 
 	// Build WHERE clause based on filters
 	whereClause := "date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)"
-	args := []interface{}{startDate, endDate}
+	args := []any{startDate, endDate}
 
 	if projectID, ok := filters["project"]; ok && projectID != "" {
 		whereClause += " AND project_id = ?"
@@ -395,14 +395,14 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 		}
 	}()
 
-	topEvents := []map[string]interface{}{}
+	topEvents := []map[string]any{}
 	for topEventsRows.Next() {
 		var name string
 		var count int
 		if err := topEventsRows.Scan(&name, &count); err != nil {
 			continue
 		}
-		topEvents = append(topEvents, map[string]interface{}{
+		topEvents = append(topEvents, map[string]any{
 			"name":  name,
 			"count": count,
 		})
@@ -557,7 +557,7 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 		}
 	}()
 
-	timeline := []map[string]interface{}{}
+	timeline := []map[string]any{}
 	for timelineRows.Next() {
 		var date string
 		var count sql.NullFloat64
@@ -572,7 +572,7 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 			countValue = count.Float64
 		}
 
-		timeline = append(timeline, map[string]interface{}{
+		timeline = append(timeline, map[string]any{
 			"date":  date,
 			"count": countValue,
 		})
@@ -602,14 +602,14 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 		}
 	}()
 
-	topPages := []map[string]interface{}{}
+	topPages := []map[string]any{}
 	for topPagesRows.Next() {
 		var url string
 		var count int
 		if err := topPagesRows.Scan(&url, &count); err != nil {
 			continue
 		}
-		topPages = append(topPages, map[string]interface{}{
+		topPages = append(topPages, map[string]any{
 			"url":   url,
 			"count": count,
 		})
@@ -651,14 +651,14 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 		}
 	}()
 
-	entryPages := []map[string]interface{}{}
+	entryPages := []map[string]any{}
 	for entryPagesRows.Next() {
 		var url string
 		var count int
 		if err := entryPagesRows.Scan(&url, &count); err != nil {
 			continue
 		}
-		entryPages = append(entryPages, map[string]interface{}{
+		entryPages = append(entryPages, map[string]any{
 			"url":   url,
 			"count": count,
 		})
@@ -700,14 +700,14 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 		}
 	}()
 
-	exitPages := []map[string]interface{}{}
+	exitPages := []map[string]any{}
 	for exitPagesRows.Next() {
 		var url string
 		var count int
 		if err := exitPagesRows.Scan(&url, &count); err != nil {
 			continue
 		}
-		exitPages = append(exitPages, map[string]interface{}{
+		exitPages = append(exitPages, map[string]any{
 			"url":   url,
 			"count": count,
 		})
@@ -736,14 +736,14 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 		}
 	}()
 
-	browsers := []map[string]interface{}{}
+	browsers := []map[string]any{}
 	for browsersRows.Next() {
 		var browser string
 		var count int
 		if err := browsersRows.Scan(&browser, &count); err != nil {
 			continue
 		}
-		browsers = append(browsers, map[string]interface{}{
+		browsers = append(browsers, map[string]any{
 			"name":  browser,
 			"count": count,
 		})
@@ -772,14 +772,14 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 		}
 	}()
 
-	devices := []map[string]interface{}{}
+	devices := []map[string]any{}
 	for devicesRows.Next() {
 		var device string
 		var count int
 		if err := devicesRows.Scan(&device, &count); err != nil {
 			continue
 		}
-		devices = append(devices, map[string]interface{}{
+		devices = append(devices, map[string]any{
 			"name":  device,
 			"count": count,
 		})
@@ -808,14 +808,14 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 		}
 	}()
 
-	operatingSystems := []map[string]interface{}{}
+	operatingSystems := []map[string]any{}
 	for osRows.Next() {
 		var os string
 		var count int
 		if err := osRows.Scan(&os, &count); err != nil {
 			continue
 		}
-		operatingSystems = append(operatingSystems, map[string]interface{}{
+		operatingSystems = append(operatingSystems, map[string]any{
 			"name":  os,
 			"count": count,
 		})
@@ -844,14 +844,14 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 		}
 	}()
 
-	topCountries := []map[string]interface{}{}
+	topCountries := []map[string]any{}
 	for countriesRows.Next() {
 		var country string
 		var count int
 		if err := countriesRows.Scan(&country, &count); err != nil {
 			continue
 		}
-		topCountries = append(topCountries, map[string]interface{}{
+		topCountries = append(topCountries, map[string]any{
 			"name":  country,
 			"count": count,
 		})
@@ -885,14 +885,14 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 		}
 	}()
 
-	topSources := []map[string]interface{}{}
+	topSources := []map[string]any{}
 	for sourcesRows.Next() {
 		var referrer string
 		var count int
 		if err := sourcesRows.Scan(&referrer, &count); err != nil {
 			continue
 		}
-		topSources = append(topSources, map[string]interface{}{
+		topSources = append(topSources, map[string]any{
 			"name":  referrer,
 			"count": count,
 		})
@@ -944,7 +944,7 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 	return stats, nil
 }
 
-func (r *eventRepository) GetOnlineUsers(timeWindow int) (map[string]interface{}, error) {
+func (r *eventRepository) GetOnlineUsers(timeWindow int) (map[string]any, error) {
 	cutoffTime := time.Now().UTC().Add(-time.Duration(timeWindow) * time.Minute)
 	// Round down to the nearest hour for date_hour filtering
 	cutoffHour := cutoffTime.Truncate(time.Hour)
@@ -965,7 +965,7 @@ func (r *eventRepository) GetOnlineUsers(timeWindow int) (map[string]interface{}
 		return nil, err
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"online_users":     onlineUsers,
 		"active_sessions":  activeSessions,
 		"time_window_mins": timeWindow,
@@ -1025,7 +1025,7 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 
 	// Build base WHERE clause for global filters using date_day partitioning for better performance
 	baseWhereClause := "date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)"
-	baseArgs := []interface{}{startDate, endDate}
+	baseArgs := []any{startDate, endDate}
 
 	if projectID, ok := request.Filters["project"]; ok && projectID != "" {
 		baseWhereClause += " AND project_id = ?"
@@ -1062,19 +1062,20 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 
 	for i, step := range request.Steps {
 		// Build WHERE clause for this step
-		stepWhereClause := baseWhereClause
-		stepArgs := make([]interface{}, len(baseArgs))
+		var stepWhereClause strings.Builder
+		stepWhereClause.WriteString(baseWhereClause)
+		stepArgs := make([]any, len(baseArgs))
 		copy(stepArgs, baseArgs)
 
 		// Add event name filter
 		if step.EventName != "" {
-			stepWhereClause += " AND event_name = ?"
+			stepWhereClause.WriteString(" AND event_name = ?")
 			stepArgs = append(stepArgs, step.EventName)
 		}
 
 		// Add URL filter if specified
 		if step.URL != "" {
-			stepWhereClause += " AND url = ?"
+			stepWhereClause.WriteString(" AND url = ?")
 			stepArgs = append(stepArgs, step.URL)
 		}
 
@@ -1082,16 +1083,16 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 		for key, value := range step.Filters {
 			switch key {
 			case "country":
-				stepWhereClause += " AND country = ?"
+				stepWhereClause.WriteString(" AND country = ?")
 				stepArgs = append(stepArgs, value)
 			case "browser":
-				stepWhereClause += " AND browser = ?"
+				stepWhereClause.WriteString(" AND browser = ?")
 				stepArgs = append(stepArgs, value)
 			case "device":
-				stepWhereClause += " AND device = ?"
+				stepWhereClause.WriteString(" AND device = ?")
 				stepArgs = append(stepArgs, value)
 			case "os":
-				stepWhereClause += " AND os = ?"
+				stepWhereClause.WriteString(" AND os = ?")
 				stepArgs = append(stepArgs, value)
 			}
 		}
@@ -1106,7 +1107,7 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 					COUNT(*) as event_count
 				FROM events 
 				WHERE %s
-			`, stepWhereClause)
+			`, stepWhereClause.String())
 
 			var userCount, sessionCount, eventCount int64
 			err := r.db.QueryRow(query, stepArgs...).Scan(&userCount, &sessionCount, &eventCount)
@@ -1135,7 +1136,7 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 			cteBuilder.WriteString("WITH ")
 
 			// Collect all arguments for all CTEs
-			var allCteArgs []interface{}
+			var allCteArgs []any
 
 			// Create CTEs for each previous step
 			for j := 0; j <= i; j++ {
@@ -1148,12 +1149,12 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 
 				// Build WHERE for this CTE
 				var cteWhereClause string
-				var cteArgs []interface{}
+				var cteArgs []any
 
 				if j == 0 {
 					// First step: simple query without joins
 					cteWhereClause = baseWhereClause
-					cteArgs = make([]interface{}, len(baseArgs))
+					cteArgs = make([]any, len(baseArgs))
 					copy(cteArgs, baseArgs)
 
 					if prevStep.EventName != "" {
@@ -1188,7 +1189,7 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 					// Subsequent steps: join with previous step
 					// Build WHERE clause with e. prefix using date_day partitioning for better performance
 					cteWhereClause = "e.date_day >= CAST(? AS DATE) AND e.date_day <= CAST(? AS DATE)"
-					cteArgs = []interface{}{startDate, endDate}
+					cteArgs = []any{startDate, endDate}
 
 					// Add global filters with e. prefix
 					if projectID, ok := request.Filters["project"]; ok && projectID != "" {
@@ -1301,7 +1302,7 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 
 			// Build next step WHERE clause
 			nextStepWhereClause := baseWhereClause
-			nextStepArgs := make([]interface{}, len(baseArgs))
+			nextStepArgs := make([]any, len(baseArgs))
 			copy(nextStepArgs, baseArgs)
 
 			if nextStep.EventName != "" {
@@ -1334,7 +1335,7 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 					AVG(time_diff_seconds) as avg_time,
 					APPROX_QUANTILE(time_diff_seconds, 0.5) as median_time
 				FROM time_diffs
-			`, stepWhereClause, nextStepWhereClause)
+			`, stepWhereClause.String(), nextStepWhereClause)
 
 			// Combine args for the time query
 			timeQueryArgs := append(stepArgs, nextStepArgs...)
@@ -1368,7 +1369,7 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 
 			// Build WHERE clauses
 			firstWhereClause := baseWhereClause
-			firstArgs := make([]interface{}, len(baseArgs))
+			firstArgs := make([]any, len(baseArgs))
 			copy(firstArgs, baseArgs)
 			if firstStep.EventName != "" {
 				firstWhereClause += " AND event_name = ?"
@@ -1380,7 +1381,7 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 			}
 
 			lastWhereClause := baseWhereClause
-			lastArgs := make([]interface{}, len(baseArgs))
+			lastArgs := make([]any, len(baseArgs))
 			copy(lastArgs, baseArgs)
 			if lastStepDef.EventName != "" {
 				lastWhereClause += " AND event_name = ?"
@@ -1428,9 +1429,9 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 }
 
 // buildWhereClause constructs a WHERE clause and arguments from filters
-func buildWhereClause(startDate, endDate time.Time, filters map[string]string) (string, []interface{}) {
+func buildWhereClause(startDate, endDate time.Time, filters map[string]string) (string, []any) {
 	whereClause := "date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)"
-	args := []interface{}{startDate, endDate}
+	args := []any{startDate, endDate}
 
 	if projectID, ok := filters["project"]; ok && projectID != "" {
 		whereClause += " AND project_id = ?"
@@ -1498,7 +1499,7 @@ func buildWhereClause(startDate, endDate time.Time, filters map[string]string) (
 }
 
 // GetTopStats returns the main statistics (counts, rates, etc.)
-func (r *eventRepository) GetTopStats(startDate, endDate time.Time, filters map[string]string) (map[string]interface{}, error) {
+func (r *eventRepository) GetTopStats(startDate, endDate time.Time, filters map[string]string) (map[string]any, error) {
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 
 	// Get current period stats
@@ -1531,7 +1532,7 @@ func (r *eventRepository) GetTopStats(startDate, endDate time.Time, filters map[
 		return nil, err
 	}
 
-	stats := make(map[string]interface{})
+	stats := make(map[string]any)
 	stats["total_events"] = totalEvents
 	stats["unique_users"] = uniqueUsers
 	stats["total_visits"] = totalVisits
@@ -1623,7 +1624,7 @@ func (r *eventRepository) GetTopStats(startDate, endDate time.Time, filters map[
 }
 
 // GetTimeline returns timeline data for visualization
-func (r *eventRepository) GetTimeline(startDate, endDate time.Time, filters map[string]string) (map[string]interface{}, error) {
+func (r *eventRepository) GetTimeline(startDate, endDate time.Time, filters map[string]string) (map[string]any, error) {
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 
 	// Determine what metric to display
@@ -1765,7 +1766,7 @@ func (r *eventRepository) GetTimeline(startDate, endDate time.Time, filters map[
 		}
 	}()
 
-	timeline := []map[string]interface{}{}
+	timeline := []map[string]any{}
 	for rows.Next() {
 		var date string
 		var count sql.NullFloat64
@@ -1779,20 +1780,20 @@ func (r *eventRepository) GetTimeline(startDate, endDate time.Time, filters map[
 			countValue = count.Float64
 		}
 
-		timeline = append(timeline, map[string]interface{}{
+		timeline = append(timeline, map[string]any{
 			"date":  date,
 			"count": countValue,
 		})
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"timeline":        timeline,
 		"timeline_format": timeFormat,
 	}, nil
 }
 
 // GetTopPages returns top pages with entry/exit pages
-func (r *eventRepository) GetTopPages(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]interface{}, error) {
+func (r *eventRepository) GetTopPages(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error) {
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 	queryArgs := append(args, limit)
 
@@ -1816,25 +1817,25 @@ func (r *eventRepository) GetTopPages(startDate, endDate time.Time, limit int, f
 		}
 	}()
 
-	topPages := []map[string]interface{}{}
+	topPages := []map[string]any{}
 	for rows.Next() {
 		var url string
 		var count int
 		if err := rows.Scan(&url, &count); err != nil {
 			continue
 		}
-		topPages = append(topPages, map[string]interface{}{
+		topPages = append(topPages, map[string]any{
 			"url":   url,
 			"count": count,
 		})
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"top_pages": topPages,
 	}, nil
 }
 
-func (r *eventRepository) GetEntryExitPages(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]interface{}, error) {
+func (r *eventRepository) GetEntryExitPages(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error) {
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 	queryArgs := append(args, limit)
 
@@ -1903,8 +1904,8 @@ SELECT * FROM (
 		}
 	}()
 
-	entryPages := []map[string]interface{}{}
-	exitPages := []map[string]interface{}{}
+	entryPages := []map[string]any{}
+	exitPages := []map[string]any{}
 
 	for rows.Next() {
 		var pageType, url string
@@ -1914,20 +1915,20 @@ SELECT * FROM (
 		}
 
 		if pageType == "entry" {
-			entryPages = append(entryPages, map[string]interface{}{"url": url, "count": count})
+			entryPages = append(entryPages, map[string]any{"url": url, "count": count})
 		} else {
-			exitPages = append(exitPages, map[string]interface{}{"url": url, "count": count})
+			exitPages = append(exitPages, map[string]any{"url": url, "count": count})
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"entry_pages": entryPages,
 		"exit_pages":  exitPages,
 	}, nil
 }
 
 // GetTopCountries returns top countries
-func (r *eventRepository) GetTopCountries(startDate, endDate time.Time, limit int, filters map[string]string) ([]map[string]interface{}, error) {
+func (r *eventRepository) GetTopCountries(startDate, endDate time.Time, limit int, filters map[string]string) ([]map[string]any, error) {
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 	queryArgs := append(args, limit)
 
@@ -1950,14 +1951,14 @@ func (r *eventRepository) GetTopCountries(startDate, endDate time.Time, limit in
 		}
 	}()
 
-	countries := []map[string]interface{}{}
+	countries := []map[string]any{}
 	for rows.Next() {
 		var country string
 		var count int
 		if err := rows.Scan(&country, &count); err != nil {
 			continue
 		}
-		countries = append(countries, map[string]interface{}{
+		countries = append(countries, map[string]any{
 			"name":  country,
 			"count": count,
 		})
@@ -1967,7 +1968,7 @@ func (r *eventRepository) GetTopCountries(startDate, endDate time.Time, limit in
 }
 
 // GetTopSources returns top referrer sources
-func (r *eventRepository) GetTopSources(startDate, endDate time.Time, limit int, filters map[string]string) ([]map[string]interface{}, error) {
+func (r *eventRepository) GetTopSources(startDate, endDate time.Time, limit int, filters map[string]string) ([]map[string]any, error) {
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 	queryArgs := append(args, limit)
 
@@ -1995,14 +1996,14 @@ func (r *eventRepository) GetTopSources(startDate, endDate time.Time, limit int,
 		}
 	}()
 
-	sources := []map[string]interface{}{}
+	sources := []map[string]any{}
 	for rows.Next() {
 		var source string
 		var count int
 		if err := rows.Scan(&source, &count); err != nil {
 			continue
 		}
-		sources = append(sources, map[string]interface{}{
+		sources = append(sources, map[string]any{
 			"name":  source,
 			"count": count,
 		})
@@ -2012,7 +2013,7 @@ func (r *eventRepository) GetTopSources(startDate, endDate time.Time, limit int,
 }
 
 // GetTopEvents returns top event names
-func (r *eventRepository) GetTopEvents(startDate, endDate time.Time, limit int, filters map[string]string) ([]map[string]interface{}, error) {
+func (r *eventRepository) GetTopEvents(startDate, endDate time.Time, limit int, filters map[string]string) ([]map[string]any, error) {
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 	queryArgs := append(args, limit)
 
@@ -2035,14 +2036,14 @@ func (r *eventRepository) GetTopEvents(startDate, endDate time.Time, limit int, 
 		}
 	}()
 
-	events := []map[string]interface{}{}
+	events := []map[string]any{}
 	for rows.Next() {
 		var name string
 		var count int
 		if err := rows.Scan(&name, &count); err != nil {
 			continue
 		}
-		events = append(events, map[string]interface{}{
+		events = append(events, map[string]any{
 			"name":  name,
 			"count": count,
 		})
@@ -2052,11 +2053,11 @@ func (r *eventRepository) GetTopEvents(startDate, endDate time.Time, limit int, 
 }
 
 // GetBrowsersDevicesOS returns browsers, devices, and operating systems
-func (r *eventRepository) GetBrowsersDevicesOS(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]interface{}, error) {
+func (r *eventRepository) GetBrowsersDevicesOS(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error) {
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 	queryArgs := append(args, limit)
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	// Browsers
 	browsersQuery := fmt.Sprintf(`
@@ -2078,14 +2079,14 @@ func (r *eventRepository) GetBrowsersDevicesOS(startDate, endDate time.Time, lim
 		}
 	}()
 
-	browsers := []map[string]interface{}{}
+	browsers := []map[string]any{}
 	for browsersRows.Next() {
 		var browser string
 		var count int
 		if err := browsersRows.Scan(&browser, &count); err != nil {
 			continue
 		}
-		browsers = append(browsers, map[string]interface{}{
+		browsers = append(browsers, map[string]any{
 			"name":  browser,
 			"count": count,
 		})
@@ -2112,14 +2113,14 @@ func (r *eventRepository) GetBrowsersDevicesOS(startDate, endDate time.Time, lim
 		}
 	}()
 
-	devices := []map[string]interface{}{}
+	devices := []map[string]any{}
 	for devicesRows.Next() {
 		var device string
 		var count int
 		if err := devicesRows.Scan(&device, &count); err != nil {
 			continue
 		}
-		devices = append(devices, map[string]interface{}{
+		devices = append(devices, map[string]any{
 			"name":  device,
 			"count": count,
 		})
@@ -2146,14 +2147,14 @@ func (r *eventRepository) GetBrowsersDevicesOS(startDate, endDate time.Time, lim
 		}
 	}()
 
-	operatingSystems := []map[string]interface{}{}
+	operatingSystems := []map[string]any{}
 	for osRows.Next() {
 		var os string
 		var count int
 		if err := osRows.Scan(&os, &count); err != nil {
 			continue
 		}
-		operatingSystems = append(operatingSystems, map[string]interface{}{
+		operatingSystems = append(operatingSystems, map[string]any{
 			"name":  os,
 			"count": count,
 		})
@@ -2164,7 +2165,7 @@ func (r *eventRepository) GetBrowsersDevicesOS(startDate, endDate time.Time, lim
 }
 
 // GetChannels returns traffic breakdown by channel with optional filters
-func (r *eventRepository) GetChannels(startDate, endDate time.Time, filters map[string]string) ([]map[string]interface{}, error) {
+func (r *eventRepository) GetChannels(startDate, endDate time.Time, filters map[string]string) ([]map[string]any, error) {
 	whereClause, args := buildWhereClause(startDate, endDate, filters)
 
 	query := fmt.Sprintf(`
@@ -2190,7 +2191,7 @@ func (r *eventRepository) GetChannels(startDate, endDate time.Time, filters map[
 		}
 	}()
 
-	channels := []map[string]interface{}{}
+	channels := []map[string]any{}
 	for rows.Next() {
 		var channelName string
 		var totalEvents, uniqueUsers, totalVisits, pageViews int64
@@ -2205,7 +2206,7 @@ func (r *eventRepository) GetChannels(startDate, endDate time.Time, filters map[
 			conversionRate = float64(pageViews) / float64(totalVisits)
 		}
 
-		channels = append(channels, map[string]interface{}{
+		channels = append(channels, map[string]any{
 			"channel":         channelName,
 			"total_events":    totalEvents,
 			"unique_users":    uniqueUsers,

@@ -208,7 +208,7 @@ func main() {
 			}
 		}()
 
-		events := []map[string]interface{}{}
+		events := []map[string]any{}
 		for rows.Next() {
 			var id uint64
 			var timestamp time.Time
@@ -216,7 +216,7 @@ func main() {
 			if err := rows.Scan(&id, &timestamp, &eventName, &userID); err != nil {
 				continue
 			}
-			events = append(events, map[string]interface{}{
+			events = append(events, map[string]any{
 				"id":         id,
 				"timestamp":  timestamp.Format(time.RFC3339),
 				"event_name": eventName,
@@ -225,7 +225,7 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"events": events,
 			"count":  len(events),
 		}); err != nil {
@@ -244,7 +244,7 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"total_events":  tableSize,
 			"storage_type":  "DuckDB Native",
 			"database_path": dbPath,

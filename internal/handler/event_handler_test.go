@@ -31,7 +31,7 @@ func TestTrackEvent(t *testing.T) {
 	tests := []struct {
 		name           string
 		method         string
-		body           interface{}
+		body           any
 		setupMock      func(*mocks.MockEventService)
 		expectedStatus int
 		expectedBody   string
@@ -168,7 +168,7 @@ func TestGetStats(t *testing.T) {
 		queryParams    string
 		setupMock      func(*mocks.MockEventService)
 		expectedStatus int
-		checkResponse  func(*testing.T, map[string]interface{})
+		checkResponse  func(*testing.T, map[string]any)
 	}{
 		{
 			name:        "Default date range (last 7 days)",
@@ -176,14 +176,14 @@ func TestGetStats(t *testing.T) {
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
 					GetStats(gomock.Any(), gomock.Any(), 50, gomock.Any()).
-					Return(map[string]interface{}{
+					Return(map[string]any{
 						"total_events": 1000,
 						"unique_users": 250,
 					}, nil).
 					Times(1)
 			},
 			expectedStatus: http.StatusOK,
-			checkResponse: func(t *testing.T, resp map[string]interface{}) {
+			checkResponse: func(t *testing.T, resp map[string]any) {
 				if total, ok := resp["total_events"].(float64); !ok || total != 1000 {
 					t.Errorf("Expected total_events to be 1000, got %v", resp["total_events"])
 				}
@@ -195,13 +195,13 @@ func TestGetStats(t *testing.T) {
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
 					GetStats(gomock.Any(), gomock.Any(), 50, gomock.Any()).
-					Return(map[string]interface{}{
+					Return(map[string]any{
 						"total_events": 500,
 					}, nil).
 					Times(1)
 			},
 			expectedStatus: http.StatusOK,
-			checkResponse: func(t *testing.T, resp map[string]interface{}) {
+			checkResponse: func(t *testing.T, resp map[string]any) {
 				if total, ok := resp["total_events"].(float64); !ok || total != 500 {
 					t.Errorf("Expected total_events to be 500, got %v", resp["total_events"])
 				}
@@ -213,7 +213,7 @@ func TestGetStats(t *testing.T) {
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
 					GetStats(gomock.Any(), gomock.Any(), 50, gomock.Any()).
-					DoAndReturn(func(start, end time.Time, limit int, filters map[string]string) (map[string]interface{}, error) {
+					DoAndReturn(func(start, end time.Time, limit int, filters map[string]string) (map[string]any, error) {
 						if filters["project"] != "myapp" {
 							t.Error("Expected project filter to be 'myapp'")
 						}
@@ -223,12 +223,12 @@ func TestGetStats(t *testing.T) {
 						if filters["browser"] != "Chrome" {
 							t.Error("Expected browser filter to be 'Chrome'")
 						}
-						return map[string]interface{}{"total_events": 100}, nil
+						return map[string]any{"total_events": 100}, nil
 					}).
 					Times(1)
 			},
 			expectedStatus: http.StatusOK,
-			checkResponse:  func(t *testing.T, resp map[string]interface{}) {},
+			checkResponse:  func(t *testing.T, resp map[string]any) {},
 		},
 		{
 			name:        "Service error",
@@ -248,11 +248,11 @@ func TestGetStats(t *testing.T) {
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
 					GetStats(gomock.Any(), gomock.Any(), 100, gomock.Any()).
-					Return(map[string]interface{}{"total_events": 200}, nil).
+					Return(map[string]any{"total_events": 200}, nil).
 					Times(1)
 			},
 			expectedStatus: http.StatusOK,
-			checkResponse:  func(t *testing.T, resp map[string]interface{}) {},
+			checkResponse:  func(t *testing.T, resp map[string]any) {},
 		},
 	}
 
@@ -276,7 +276,7 @@ func TestGetStats(t *testing.T) {
 			}
 
 			if tt.checkResponse != nil && w.Code == http.StatusOK {
-				var resp map[string]interface{}
+				var resp map[string]any
 				if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 					t.Fatalf("Failed to decode response: %v", err)
 				}
@@ -299,8 +299,8 @@ func TestGetEvents(t *testing.T) {
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
 					GetEvents(gomock.Any(), gomock.Any(), 100, 0).
-					Return(map[string]interface{}{
-						"events": []interface{}{},
+					Return(map[string]any{
+						"events": []any{},
 						"total":  0,
 					}, nil).
 					Times(1)
@@ -313,8 +313,8 @@ func TestGetEvents(t *testing.T) {
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
 					GetEvents(gomock.Any(), gomock.Any(), 50, 100).
-					Return(map[string]interface{}{
-						"events": []interface{}{},
+					Return(map[string]any{
+						"events": []any{},
 						"total":  0,
 					}, nil).
 					Times(1)
@@ -369,7 +369,7 @@ func TestGetOnlineUsers(t *testing.T) {
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
 					GetOnlineUsers(5).
-					Return(map[string]interface{}{
+					Return(map[string]any{
 						"online_users": 42,
 					}, nil).
 					Times(1)
@@ -382,7 +382,7 @@ func TestGetOnlineUsers(t *testing.T) {
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
 					GetOnlineUsers(10).
-					Return(map[string]interface{}{
+					Return(map[string]any{
 						"online_users": 50,
 					}, nil).
 					Times(1)
@@ -523,7 +523,7 @@ func TestHealth(t *testing.T) {
 				t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
 			}
 
-			var resp map[string]interface{}
+			var resp map[string]any
 			if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 				t.Fatalf("Failed to decode response: %v", err)
 			}
@@ -571,7 +571,7 @@ func TestGeoTest(t *testing.T) {
 			t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
 		}
 
-		var resp map[string]interface{}
+		var resp map[string]any
 		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 			t.Fatalf("Failed to decode response: %v", err)
 		}

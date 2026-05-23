@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -308,15 +309,15 @@ func escapeCsv(s string) string {
 	}
 	if needsQuote {
 		// Escape quotes by doubling them
-		escaped := ""
+		var escaped strings.Builder
 		for _, c := range s {
 			if c == '"' {
-				escaped += "\"\""
+				escaped.WriteString("\"\"")
 			} else {
-				escaped += string(c)
+				escaped.WriteString(string(c))
 			}
 		}
-		return "\"" + escaped + "\""
+		return "\"" + escaped.String() + "\""
 	}
 	return s
 }
