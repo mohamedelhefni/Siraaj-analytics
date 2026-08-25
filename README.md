@@ -29,6 +29,7 @@
 - 📈 **Funnel Analysis** - Measure conversions
 - 🤖 **Bot Detection** - Filter automated traffic
 - 🎨 **Channel Attribution** - Understand traffic sources
+- 🔗 **Short-Link Analytics** - Create compact links and measure clicks by country and referrer
 
 ---
 
@@ -86,6 +87,15 @@ go build -o siraaj && ./siraaj
 siraaj.track('purchase', { product: 'Premium', price: 99 });
 siraaj.identify('user-123', { plan: 'premium' });
 ```
+
+**Create and measure a short link:**
+```bash
+curl -X POST http://localhost:8080/api/links \
+  -H 'Content-Type: application/json' \
+  -d '{"destination_url":"https://example.com/launch","custom_slug":"launch","project_id":"marketing"}'
+```
+
+Open the **Links** area in the dashboard to copy the short URL and inspect its click timeline, countries, and referring sites.
 
 **Framework integrations:** React, Vue, Svelte, Next.js → [SDK Docs](./sdk/README.md)
 

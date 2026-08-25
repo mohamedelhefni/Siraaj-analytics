@@ -12,6 +12,8 @@ http://localhost:8080/api
 
 Currently, Siraaj doesn't require authentication. API key authentication is planned for future releases.
 
+When dashboard basic authentication is configured, short-link creation, listing, and analytics use the same credentials. Public `/s/{slug}` redirects never require authentication.
+
 ## Core Endpoints
 
 ### Health Check
@@ -114,6 +116,51 @@ Content-Type: application/json
 ---
 
 ## Analytics Endpoints
+
+### Create a Short Link
+
+Create a tracked redirect. `custom_slug` is optional; when omitted, Siraaj generates an eight-character slug.
+
+```http
+POST /api/links
+Content-Type: application/json
+```
+
+```json
+{
+  "destination_url": "https://example.com/launch",
+  "custom_slug": "launch",
+  "project_id": "marketing"
+}
+```
+
+The destination must use HTTP or HTTPS. Custom slugs may contain 3–64 letters, numbers, hyphens, or underscores.
+
+### List Short Links
+
+```http
+GET /api/links?project=marketing
+```
+
+Each link includes its public `short_url`, all-time `click_count`, and most recent click time.
+
+### Redirect and Record a Click
+
+```http
+GET /s/launch
+```
+
+Siraaj records the click's country and referring domain, then responds with a `302` redirect. Visitor IP addresses are used transiently for country lookup and are not stored with link clicks.
+
+### Get Short-Link Analytics
+
+```http
+GET /api/links/stats?slug=launch&start=2026-08-01&end=2026-08-31
+```
+
+The response includes total clicks, a daily timeline, and breakdowns by country and referring domain. The default range is the last 30 days.
+
+---
 
 ### Get Statistics
 

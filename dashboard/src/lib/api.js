@@ -111,6 +111,47 @@ export async function fetchProjects() {
 }
 
 /**
+ * @param {{destination_url: string, custom_slug: string, project_id: string}} request
+ */
+export async function createShortLink(request) {
+    const response = await fetch(`${API_BASE_URL}/links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+        throw new Error((await response.text()).trim() || 'Failed to create short link');
+    }
+    return response.json();
+}
+
+export async function fetchShortLinks(project = '') {
+    const params = new URLSearchParams();
+    if (project) params.set('project', project);
+    const response = await fetch(`${API_BASE_URL}/links?${params}`);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch short links: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+/**
+ * @param {string} slug
+ * @param {string} startDate
+ * @param {string} endDate
+ */
+export async function fetchShortLinkStats(slug, startDate, endDate) {
+    const params = new URLSearchParams({ slug });
+    if (startDate) params.set('start', startDate);
+    if (endDate) params.set('end', endDate);
+    const response = await fetch(`${API_BASE_URL}/links/stats?${params}`);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch link stats: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+/**
  * Track a new event
  * @param {Object} event - Event data
  * @returns {Promise<Object>} Response

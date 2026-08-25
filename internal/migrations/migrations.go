@@ -87,6 +87,35 @@ var migrations = []Migration{
 		DROP INDEX IF EXISTS idx_day_device;
 		DROP INDEX IF EXISTS idx_day_os`,
 	},
+	{
+		Version:     4,
+		Description: "Create short links and click analytics",
+		Up: `CREATE SEQUENCE IF NOT EXISTS short_link_id_sequence START 1;
+		CREATE SEQUENCE IF NOT EXISTS link_click_id_sequence START 1;
+		CREATE TABLE IF NOT EXISTS short_links (
+			id UBIGINT PRIMARY KEY,
+			slug VARCHAR NOT NULL UNIQUE,
+			destination_url VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL DEFAULT 'default',
+			created_at TIMESTAMP NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS link_clicks (
+			id UBIGINT PRIMARY KEY,
+			link_id UBIGINT NOT NULL,
+			timestamp TIMESTAMP NOT NULL,
+			date_day DATE NOT NULL,
+			country VARCHAR,
+			referrer VARCHAR
+		);
+		CREATE INDEX IF NOT EXISTS idx_short_links_project ON short_links(project_id, created_at);
+		CREATE INDEX IF NOT EXISTS idx_link_clicks_link_day ON link_clicks(link_id, date_day);`,
+		Down: `DROP INDEX IF EXISTS idx_link_clicks_link_day;
+		DROP INDEX IF EXISTS idx_short_links_project;
+		DROP TABLE IF EXISTS link_clicks;
+		DROP TABLE IF EXISTS short_links;
+		DROP SEQUENCE IF EXISTS link_click_id_sequence;
+		DROP SEQUENCE IF EXISTS short_link_id_sequence;`,
+	},
 }
 
 func initMigrationTable(db *sql.DB) error {

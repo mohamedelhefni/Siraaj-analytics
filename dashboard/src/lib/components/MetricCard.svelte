@@ -26,87 +26,78 @@
 		onclick?: () => void;
 	} = $props();
 
-	// Calculate percentage change
 	const change = $derived(() => {
 		if (!previousValue || previousValue === 0) return 0;
 		return ((currentValue - previousValue) / previousValue) * 100;
 	});
 
-	// Get trend icon based on change
 	function getTrendIcon(changeVal: number) {
 		if (changeVal > 0) return TrendingUp;
 		if (changeVal < 0) return TrendingDown;
 		return Minus;
 	}
 
-	// Get trend color based on change
 	function getTrendColor(changeVal: number) {
-		if (changeVal === 0) return 'text-gray-600';
-
-		if (isNegativeBetter) {
-			// For metrics like bounce rate, lower is better
-			return changeVal < 0 ? 'text-green-600' : 'text-red-600';
-		} else {
-			// For most metrics, higher is better
-			return changeVal > 0 ? 'text-green-600' : 'text-red-600';
-		}
+		if (changeVal === 0) return isSelected ? 'text-slate-400' : 'text-slate-500';
+		const isImprovement = isNegativeBetter ? changeVal < 0 : changeVal > 0;
+		if (isImprovement) return isSelected ? 'text-emerald-300' : 'text-emerald-700';
+		return isSelected ? 'text-rose-300' : 'text-rose-700';
 	}
 </script>
 
 <button
-	class="hover:bg-accent group border-b border-r p-4 text-left transition-colors lg:border-b-0 {isSelected
-		? 'bg-accent'
-		: ''}"
+	class="group relative flex min-h-48 flex-col overflow-hidden p-4 text-left transition-all focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none focus-visible:ring-inset sm:p-5 {isSelected
+		? 'bg-slate-950 text-white shadow-inner'
+		: 'bg-white text-slate-950 hover:z-10 hover:bg-amber-50'}"
 	{onclick}
 	disabled={loading}
 >
-	<div class="text-muted-foreground mb-1 text-xs font-medium uppercase tracking-wide">
+	{#if isSelected}<span
+			class="absolute top-3 right-3 size-1.5 rounded-full bg-amber-300 shadow-[0_0_8px_rgba(252,211,77,0.8)]"
+		></span>{/if}
+	<div
+		class="mb-3 min-h-6 w-full text-[10px] leading-4 font-semibold tracking-[0.14em] uppercase {isSelected
+			? 'text-amber-200'
+			: 'text-slate-500'}"
+	>
 		{label}
 	</div>
 
 	{#if loading}
-		<!-- Loading Skeleton -->
-		<div class="mb-1">
-			<div class="bg-muted h-8 w-24 animate-pulse rounded"></div>
-			{#if currentPeriod}
-				<div class="bg-muted mt-1 h-3 w-16 animate-pulse rounded"></div>
-			{/if}
-		</div>
-
-		{#if previousValue !== null}
-			<div class="mt-2 opacity-60">
-				<div class="bg-muted h-6 w-20 animate-pulse rounded"></div>
-				{#if previousPeriod}
-					<div class="bg-muted mt-1 h-3 w-16 animate-pulse rounded"></div>
-				{/if}
-			</div>
-		{/if}
+		<div class="h-9 w-24 animate-pulse rounded bg-slate-200"></div>
+		<div class="mt-3 h-3 w-16 animate-pulse rounded bg-slate-100"></div>
 	{:else}
-		<!-- Current Period -->
-		<div class="mb-1">
-			<div class="text-2xl font-bold">{formatValue(currentValue)}</div>
-			{#if currentPeriod}
-				<div class="text-muted-foreground text-xs">{currentPeriod}</div>
-			{/if}
-		</div>
-
-		<!-- Previous Period (with fade) -->
-		{#if previousValue !== null}
-			<div class="mt-2 opacity-60">
-				<div class="text-lg font-semibold">{formatValue(previousValue)}</div>
-				{#if previousPeriod}
-					<div class="text-muted-foreground text-xs">{previousPeriod}</div>
-				{/if}
+		<div class="w-full">
+			<div class="text-3xl font-semibold tracking-[-0.04em] tabular-nums">
+				{formatValue(currentValue)}
 			</div>
-
-			<!-- Change Indicator -->
-			{#if change() !== 0}
-				{@const TrendIcon = getTrendIcon(change())}
-				<div class="text-xs {getTrendColor(change())} mt-1 flex items-center gap-1">
-					<TrendIcon class="h-3 w-3" />
-					{Math.abs(change()).toFixed(0)}%
+			{#if currentPeriod}
+				<div
+					class="mt-1 text-[10px] leading-4 whitespace-nowrap {isSelected
+						? 'text-slate-400'
+						: 'text-slate-500'}"
+				>
+					{currentPeriod}
 				</div>
 			{/if}
+		</div>
+
+		{#if previousValue !== null}
+			<div class="mt-auto flex w-full items-end justify-between gap-2 border-t pt-3 text-[11px]">
+				<div class="min-w-0 {isSelected ? 'text-slate-400' : 'text-slate-500'}">
+					<span class="block font-medium">Prev. {formatValue(previousValue)}</span>
+					{#if previousPeriod}<span class="mt-0.5 block text-[9px] whitespace-nowrap"
+							>{previousPeriod}</span
+						>{/if}
+				</div>
+				{#if change() !== 0}
+					{@const TrendIcon = getTrendIcon(change())}
+					<div class="flex shrink-0 items-center gap-1 font-semibold {getTrendColor(change())}">
+						<TrendIcon class="size-3" />
+						{Math.abs(change()).toFixed(0)}%
+					</div>
+				{/if}
+			</div>
 		{/if}
 	{/if}
 </button>

@@ -137,6 +137,9 @@ func main() {
 
 	eventService := service.NewEventService(baseRepo)
 	eventHandler := handler.NewEventHandler(eventService, geoService)
+	linkRepo := repository.NewLinkRepository(db)
+	linkService := service.NewLinkService(linkRepo)
+	linkHandler := handler.NewLinkHandler(linkService, geoService)
 
 	// Setup graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -178,6 +181,9 @@ func main() {
 	mux.HandleFunc("/api/funnel", eventHandler.GetFunnelAnalysis)
 	mux.HandleFunc("/api/health", eventHandler.Health)
 	mux.HandleFunc("/api/geo", eventHandler.GeoTest)
+	mux.Handle("/api/links", middleware.BasicAuth(http.HandlerFunc(linkHandler.Links)))
+	mux.Handle("/api/links/stats", middleware.BasicAuth(http.HandlerFunc(linkHandler.Stats)))
+	mux.HandleFunc("/s/", linkHandler.Redirect)
 
 	// New focused stats endpoints
 	mux.HandleFunc("/api/stats/overview", eventHandler.GetTopStats)
