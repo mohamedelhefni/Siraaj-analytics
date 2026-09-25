@@ -29,15 +29,15 @@ That's it! Auto-tracking is now enabled. 🎉
 ### NPM Package
 
 ```bash
-npm install @siraaj/sdk
+npm install @hefni101/siraaj
 # or
-pnpm add @siraaj/sdk
+pnpm add @hefni101/siraaj
 # or
-yarn add @siraaj/sdk
+yarn add @hefni101/siraaj
 ```
 
 ```javascript
-import { AnalyticsCore } from '@siraaj/sdk';
+import { AnalyticsCore } from '@hefni101/siraaj';
 
 const analytics = new AnalyticsCore({
   apiUrl: 'http://localhost:8080',
@@ -309,7 +309,7 @@ All sizes are **gzipped**:
 Full TypeScript definitions included:
 
 ```typescript
-import type { AnalyticsConfig, EventData } from '@siraaj/sdk';
+import type { AnalyticsConfig, EventData } from '@hefni101/siraaj';
 
 const config: AnalyticsConfig = {
   apiUrl: 'http://localhost:8080',

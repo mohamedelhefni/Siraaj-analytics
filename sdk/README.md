@@ -119,12 +119,12 @@ analytics.pageView('/products/123', {
 ### Option 2: NPM Package
 
 ```bash
-npm install @siraaj/sdk
+npm install @hefni101/siraaj
 ```
 
 ```javascript
 // ES Modules
-import { AnalyticsCore } from '@siraaj/sdk';
+import { AnalyticsCore } from '@hefni101/siraaj';
 
 const analytics = new AnalyticsCore({
   apiUrl: 'http://localhost:8080',

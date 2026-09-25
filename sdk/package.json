@@ -1,11 +1,12 @@
 {
-  "name": "@siraaj/sdk",
+  "name": "@hefni101/siraaj",
   "version": "2.0.0",
   "description": "Lightweight analytics SDK - Simple, fast, and easy to share",
   "main": "analytics.js",
   "module": "dist/analytics.esm.js",
   "types": "dist/analytics.d.ts",
   "sideEffects": false,
+  "publishConfig": { "access": "public" },
   "exports": {
     ".": {
       "types": "./dist/analytics.d.ts",
