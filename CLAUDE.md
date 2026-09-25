@@ -17,7 +17,7 @@ internal/
   service/         # Business logic, EventService interface
   repository/      # DuckDB data access, EventRepository interface
   handler/         # HTTP handlers
-  middleware/       # CORS, BasicAuth, Logging
+  middleware/       # CORS, token authentication, Logging
   migrations/      # DB schema & indexes
   botdetector/     # Bot detection
   channeldetector/ # Traffic channel classification
@@ -64,8 +64,8 @@ PORT=8080
 DB_PATH=data/analytics.db
 DUCKDB_MEMORY_LIMIT=4GB
 DUCKDB_THREADS=4
-DASHBOARD_USERNAME=admin      # Set both to enable auth
-DASHBOARD_PASSWORD=password
+AUTH_SECRET=replace-with-at-least-32-random-characters
+AUTH_TOKEN_TTL=24h
 CORS=https://example.com      # Default: *
 GEODB_PATH=data/geodb/dbip.mmdb
 ```
@@ -82,7 +82,7 @@ Key patterns:
 - Dependency injection via interfaces (enables mock testing)
 - Batch inserts (5000 records) for DuckDB performance
 - Go `embed` package for UI assets embedded in binary
-- Multi-tenancy via `project_id` on all events
+- Tenant isolation via owned projects; every analytics read is scoped by authenticated `owner_id`
 
 ## Database Notes
 

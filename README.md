@@ -30,6 +30,9 @@
 - 🤖 **Bot Detection** - Filter automated traffic
 - 🎨 **Channel Attribution** - Understand traffic sources
 - 🔗 **Short-Link Analytics** - Create compact links and measure clicks by country and referrer
+- 👤 **User Authentication** - Bootstrap an administrator, add dashboard users, and use signed sessions
+- 🔑 **Private Ingestion** - Revocable tracking tokens are scoped to one project
+- 🧱 **Tenant Isolation** - Every account can query only projects, events, links, and tokens it owns
 
 ---
 
@@ -50,6 +53,7 @@ services:
     volumes: ["./data:/data"]
     environment:
       - DUCKDB_MEMORY_LIMIT=4GB
+      - AUTH_SECRET=replace-with-at-least-32-random-characters
     restart: unless-stopped
 ```
 
@@ -59,7 +63,9 @@ git clone https://github.com/mohamedelhefni/siraaj.git && cd siraaj
 go build -o siraaj && ./siraaj
 ```
 
-**Dashboard:** http://localhost:8080/
+**Dashboard:** http://localhost:8080/dashboard/
+
+On first launch, choose **Server owner: first-time setup** to create the administrator. After that, anyone can create an isolated account from **Create account**. Each account starts empty and creates its first project by issuing a tracking token under **Users & tracking keys**.
 
 > Pre-built binaries coming soon! ⭐
 
@@ -76,6 +82,7 @@ go build -o siraaj && ./siraaj
     window.siraaj=new Analytics({
       apiUrl:'http://your-server:8080',
       projectId:'my-website',
+      trackingToken:'siraaj_trk_your_project_token',
       autoTrack:true
     });
   }}();
@@ -108,8 +115,8 @@ Open the **Links** area in the dashboard to copy the short URL and inspect its c
 PORT=8080                           # Server port
 DB_PATH=data/analytics.db           # Database path
 DUCKDB_MEMORY_LIMIT=4GB             # Memory limit
-DASHBOARD_USERNAME=admin            # Optional auth
-DASHBOARD_PASSWORD=secret           # Optional auth
+AUTH_SECRET=32-or-more-random-characters # Signs dashboard sessions
+AUTH_TOKEN_TTL=24h                  # Optional session lifetime
 CORS=https://example.com            # CORS origins
 ```
 

@@ -10,9 +10,23 @@ http://localhost:8080/api
 
 ## Authentication
 
-Currently, Siraaj doesn't require authentication. API key authentication is planned for future releases.
+Analytics and management endpoints require a signed user access token:
 
-When dashboard basic authentication is configured, short-link creation, listing, and analytics use the same credentials. Public `/s/{slug}` redirects never require authentication.
+```http
+Authorization: Bearer <access_token>
+```
+
+Create the first administrator once with `POST /api/auth/bootstrap`, then sign in with `POST /api/auth/login`. After administrator setup, users may create isolated accounts through `POST /api/auth/signup`. Administrators can also create accounts through `POST /api/users`, but the administrator role does not grant access to another user's analytics.
+
+Event ingestion uses a revocable project-scoped token instead of a user session:
+
+```http
+X-Siraaj-Token: siraaj_trk_...
+```
+
+Create and revoke tracking tokens through `/api/tracking-tokens`. The server always derives `project_id` from the token and ignores a project supplied in the event body. The health check and public `/s/{slug}` redirects do not require authentication.
+
+Projects have one owner. Analytics queries, funnels, online counts, project lists, tracking tokens, and short-link management are automatically restricted to the authenticated owner. Passing another account's `project` query parameter returns no data. During migration, projects with existing tracking tokens keep the earliest token owner; unclaimed legacy projects are assigned to the oldest administrator.
 
 ## Core Endpoints
 
@@ -42,6 +56,7 @@ Send a single analytics event.
 ```http
 POST /api/track
 Content-Type: application/json
+X-Siraaj-Token: siraaj_trk_...
 ```
 
 **Request Body**
@@ -58,18 +73,11 @@ Content-Type: application/json
   "browser": "Chrome",
   "os": "MacOS",
   "device": "Desktop",
-  "project_id": "my-website",
   "ip": "192.168.1.1"
 }
 ```
 
-**Response**
-
-```json
-{
-  "status": "ok"
-}
-```
+**Response:** `204 No Content`
 
 **Note**: Channel classification happens automatically server-side based on referrer and URL parameters.
 
@@ -82,6 +90,7 @@ Send multiple events at once for better performance (recommended).
 ```http
 POST /api/track/batch
 Content-Type: application/json
+X-Siraaj-Token: siraaj_trk_...
 ```
 
 **Request Body**
@@ -104,14 +113,7 @@ Content-Type: application/json
 }
 ```
 
-**Response**
-
-```json
-{
-  "status": "ok",
-  "received": 2
-}
-```
+**Response:** `204 No Content`
 
 ---
 
