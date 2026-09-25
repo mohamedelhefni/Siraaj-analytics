@@ -12,7 +12,7 @@
 		MousePointerClick
 	} from 'lucide-svelte';
 	import { Button } from '$lib/components/ui/button';
-	import { createShortLink, fetchShortLinks, fetchShortLinkStats } from '$lib/api';
+	import { createShortLink, fetchProjects, fetchShortLinks, fetchShortLinkStats } from '$lib/api';
 
 	type ShortLink = {
 		id: number;
@@ -34,11 +34,12 @@
 	};
 
 	let links: ShortLink[] = $state([]);
+	let projects: string[] = $state([]);
 	let selectedLink: ShortLink | null = $state(null);
 	let stats: LinkStats | null = $state(null);
 	let destinationURL = $state('');
 	let customSlug = $state('');
-	let projectID = $state('default');
+	let projectID = $state('');
 	let loading = $state(true);
 	let creating = $state(false);
 	let statsLoading = $state(false);
@@ -52,7 +53,18 @@
 		return Math.max(...stats.timeline.map((point) => point.count), 1);
 	});
 
-	onMount(loadLinks);
+	onMount(() => { void loadPage(); });
+
+	async function loadPage() {
+		try {
+			projects = await fetchProjects();
+			projectID = projects[0] ?? '';
+			await loadLinks();
+		} catch (caughtError: any) {
+			error = caughtError?.message || 'Failed to load your workspace';
+			loading = false;
+		}
+	}
 
 	async function loadLinks() {
 		loading = true;
@@ -210,11 +222,10 @@
 				</label>
 				<label>
 					<span class="mb-2 block text-sm font-medium">Project</span>
-					<input
-						bind:value={projectID}
-						required
-						class="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-foreground focus:ring-4 focus:ring-foreground/10"
-					/>
+					<select bind:value={projectID} required class="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-foreground focus:ring-4 focus:ring-foreground/10">
+						<option value="" disabled>{projects.length ? 'Choose a project' : 'Create a tracking key first'}</option>
+						{#each projects as project}<option value={project}>{project}</option>{/each}
+					</select>
 				</label>
 				<div class="flex items-center justify-between gap-4 sm:col-span-2">
 					<p class="text-xs text-muted-foreground">

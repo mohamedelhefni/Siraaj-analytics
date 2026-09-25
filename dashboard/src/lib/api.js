@@ -1,13 +1,118 @@
 // API configuration
 // Use environment variable or fallback to relative path for production
 const API_BASE_URL = import.meta.env.VITE_PUBLIC_API_URL || '/api';
+const AUTH_STORAGE_KEY = 'siraaj_access_token';
+const nativeFetch = globalThis.fetch.bind(globalThis);
+
+export function getAccessToken() {
+    return typeof localStorage === 'undefined' ? '' : localStorage.getItem(AUTH_STORAGE_KEY) || '';
+}
+
+export function clearAccessToken() {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+/** @param {RequestInfo | URL} input @param {RequestInit} [init] */
+async function fetch(input, init = {}) {
+    const headers = new Headers(init.headers || {});
+    const token = getAccessToken();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const response = await nativeFetch(input, { ...init, headers });
+    if (response.status === 401 && token && typeof window !== 'undefined') {
+        clearAccessToken();
+        window.dispatchEvent(new CustomEvent('siraaj:unauthorized'));
+    }
+    return response;
+}
+
+/** @param {string} email @param {string} password */
+export async function login(email, password) {
+    const response = await nativeFetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Unable to sign in');
+    localStorage.setItem(AUTH_STORAGE_KEY, payload.access_token);
+    return payload.user;
+}
+
+/** @param {string} email @param {string} password */
+export async function signup(email, password) {
+    const response = await nativeFetch(`${API_BASE_URL}/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Unable to create account');
+    localStorage.setItem(AUTH_STORAGE_KEY, payload.access_token);
+    return payload.user;
+}
+
+/** @param {string} email @param {string} password */
+export async function bootstrap(email, password) {
+    const response = await nativeFetch(`${API_BASE_URL}/auth/bootstrap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Unable to create administrator');
+    return login(email, password);
+}
+
+export async function fetchCurrentUser() {
+    const response = await fetch(`${API_BASE_URL}/auth/me`);
+    if (!response.ok) throw new Error('Authentication required');
+    return response.json();
+}
+
+export async function fetchUsers() {
+    const response = await fetch(`${API_BASE_URL}/users`);
+    if (!response.ok) throw new Error((await response.json()).error || 'Unable to load users');
+    return response.json();
+}
+
+/** @param {{email: string, password: string, role: string}} request */
+export async function createUser(request) {
+    const response = await fetch(`${API_BASE_URL}/users`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Unable to create user');
+    return payload;
+}
+
+export async function fetchTrackingTokens() {
+    const response = await fetch(`${API_BASE_URL}/tracking-tokens`);
+    if (!response.ok) throw new Error((await response.json()).error || 'Unable to load tracking tokens');
+    return response.json();
+}
+
+/** @param {{project_id: string, name: string}} request */
+export async function createTrackingToken(request) {
+    const response = await fetch(`${API_BASE_URL}/tracking-tokens`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Unable to create tracking token');
+    return payload;
+}
+
+/** @param {string} id */
+export async function revokeTrackingToken(id) {
+    const response = await fetch(`${API_BASE_URL}/tracking-tokens?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Unable to revoke tracking token');
+}
 
 /**
  * Fetch analytics stats from the backend
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
  * @param {number} limit - Limit for top results (default 50)
- * @param {Object} filters - Optional filters {source, country, browser, device, os, event, project, metric, botFilter, page}
+ * @param {Record<string, string>} filters - Optional filters {source, country, browser, device, os, event, project, metric, botFilter, page}
  * @returns {Promise<Object>} Analytics stats
  */
 export async function fetchStats(startDate, endDate, limit = 50, filters = {}) {
@@ -40,7 +145,7 @@ export async function fetchStats(startDate, endDate, limit = 50, filters = {}) {
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
  * @param {number} limit - Limit for top results (default 50)
- * @param {Object} filters - Optional filters {source, country, browser, device, os, event, project, metric, botFilter}
+ * @param {Record<string, string>} filters - Optional filters {source, country, browser, device, os, event, project, metric, botFilter}
  * @returns {Promise<Object>} Analytics stats for comparison period
  */
 export async function fetchComparisonStats(startDate, endDate, limit = 50, filters = {}) {
@@ -152,37 +257,6 @@ export async function fetchShortLinkStats(slug, startDate, endDate) {
 }
 
 /**
- * Track a new event
- * @param {Object} event - Event data
- * @returns {Promise<Object>} Response
- */
-export async function trackEvent(event) {
-    const response = await fetch(`${API_BASE_URL}/track`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(event),
-    });
-    if (!response.ok) {
-        throw new Error(`Failed to track event: ${response.statusText}`);
-    }
-    return response.json();
-}
-
-/**
- * Fetch debug events
- * @returns {Promise<Object>} Debug events
- */
-export async function fetchDebugEvents() {
-    const response = await fetch(`${API_BASE_URL}/debug/events`);
-    if (!response.ok) {
-        throw new Error(`Failed to fetch debug events: ${response.statusText}`);
-    }
-    return response.json();
-}
-
-/**
  * Health check
  * @returns {Promise<Object>} Health status
  */
@@ -225,7 +299,7 @@ export async function fetchFunnelAnalysis(funnelRequest) {
  * @param {string} startDate - Start date
  * @param {string} endDate - End date
  * @param {number} limit - Limit for results
- * @param {Object} filters - Filters object
+ * @param {Record<string, string>} filters - Filters object
  * @returns {URLSearchParams} Query parameters
  */
 function buildQueryParams(startDate, endDate, limit = 50, filters = {}) {
@@ -253,7 +327,7 @@ function buildQueryParams(startDate, endDate, limit = 50, filters = {}) {
  * Fetch top-level statistics (counts, rates, trends)
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
- * @param {Object} filters - Optional filters
+ * @param {Record<string, string>} filters - Optional filters
  * @returns {Promise<Object>} Top stats
  */
 export async function fetchTopStats(startDate, endDate, filters = {}) {
@@ -270,7 +344,7 @@ export async function fetchTopStats(startDate, endDate, filters = {}) {
  * Fetch timeline data for the main chart
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
- * @param {Object} filters - Optional filters (including metric)
+ * @param {Record<string, string>} filters - Optional filters (including metric)
  * @returns {Promise<Object>} Timeline data with format
  */
 export async function fetchTimeline(startDate, endDate, filters = {}) {
@@ -288,7 +362,7 @@ export async function fetchTimeline(startDate, endDate, filters = {}) {
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
  * @param {number} limit - Limit for results
- * @param {Object} filters - Optional filters
+ * @param {Record<string, string>} filters - Optional filters
  * @returns {Promise<Object>} Top pages data
  */
 export async function fetchTopPages(startDate, endDate, limit = 10, filters = {}) {
@@ -306,7 +380,7 @@ export async function fetchTopPages(startDate, endDate, limit = 10, filters = {}
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
  * @param {number} limit - Limit for results
- * @param {Object} filters - Optional filters
+ * @param {Record<string, string>} filters - Optional filters
  * @returns {Promise<Object>} Entry and exit pages
  */
 export async function fetchEntryExitPages(startDate, endDate, limit = 10, filters = {}) {
@@ -324,8 +398,8 @@ export async function fetchEntryExitPages(startDate, endDate, limit = 10, filter
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
  * @param {number} limit - Limit for results
- * @param {Object} filters - Optional filters
- * @returns {Promise<Array>} Top countries
+ * @param {Record<string, string>} filters - Optional filters
+ * @returns {Promise<Array<unknown>>} Top countries
  */
 export async function fetchTopCountries(startDate, endDate, limit = 10, filters = {}) {
     const params = buildQueryParams(startDate, endDate, limit, filters);
@@ -342,8 +416,8 @@ export async function fetchTopCountries(startDate, endDate, limit = 10, filters 
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
  * @param {number} limit - Limit for results
- * @param {Object} filters - Optional filters
- * @returns {Promise<Array>} Top sources
+ * @param {Record<string, string>} filters - Optional filters
+ * @returns {Promise<Array<unknown>>} Top sources
  */
 export async function fetchTopSources(startDate, endDate, limit = 10, filters = {}) {
     const params = buildQueryParams(startDate, endDate, limit, filters);
@@ -360,8 +434,8 @@ export async function fetchTopSources(startDate, endDate, limit = 10, filters = 
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
  * @param {number} limit - Limit for results
- * @param {Object} filters - Optional filters
- * @returns {Promise<Array>} Top events
+ * @param {Record<string, string>} filters - Optional filters
+ * @returns {Promise<Array<unknown>>} Top events
  */
 export async function fetchTopEvents(startDate, endDate, limit = 10, filters = {}) {
     const params = buildQueryParams(startDate, endDate, limit, filters);
@@ -378,7 +452,7 @@ export async function fetchTopEvents(startDate, endDate, limit = 10, filters = {
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
  * @param {number} limit - Limit for results
- * @param {Object} filters - Optional filters
+ * @param {Record<string, string>} filters - Optional filters
  * @returns {Promise<Object>} Browsers, devices, and OS data
  */
 export async function fetchBrowsersDevicesOS(startDate, endDate, limit = 10, filters = {}) {
@@ -395,8 +469,8 @@ export async function fetchBrowsersDevicesOS(startDate, endDate, limit = 10, fil
  * Fetch channel analytics (traffic source breakdown)
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
- * @param {Object} filters - Optional filters
- * @returns {Promise<Array>} Channel breakdown with metrics
+ * @param {Record<string, string>} filters - Optional filters
+ * @returns {Promise<Array<unknown>>} Channel breakdown with metrics
  */
 export async function fetchChannels(startDate, endDate, filters = {}) {
     const params = buildQueryParams(startDate, endDate, 50, filters);
