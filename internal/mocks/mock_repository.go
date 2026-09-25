@@ -41,6 +41,20 @@ func (m *MockEventRepository) EXPECT() *MockEventRepositoryMockRecorder {
 	return m.recorder
 }
 
+// Close mocks base method.
+func (m *MockEventRepository) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockEventRepositoryMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockEventRepository)(nil).Close))
+}
+
 // Create mocks base method.
 func (m *MockEventRepository) Create(event domain.Event) error {
 	m.ctrl.T.Helper()
@@ -67,6 +81,20 @@ func (m *MockEventRepository) CreateBatch(events []domain.Event) error {
 func (mr *MockEventRepositoryMockRecorder) CreateBatch(events any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateBatch", reflect.TypeOf((*MockEventRepository)(nil).CreateBatch), events)
+}
+
+// Flush mocks base method.
+func (m *MockEventRepository) Flush() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Flush")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Flush indicates an expected call of Flush.
+func (mr *MockEventRepositoryMockRecorder) Flush() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Flush", reflect.TypeOf((*MockEventRepository)(nil).Flush))
 }
 
 // GetBrowsersDevicesOS mocks base method.
@@ -115,18 +143,18 @@ func (mr *MockEventRepositoryMockRecorder) GetEntryExitPages(startDate, endDate,
 }
 
 // GetEvents mocks base method.
-func (m *MockEventRepository) GetEvents(startDate, endDate time.Time, limit, offset int) (map[string]any, error) {
+func (m *MockEventRepository) GetEvents(query domain.EventQuery) (map[string]any, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEvents", startDate, endDate, limit, offset)
+	ret := m.ctrl.Call(m, "GetEvents", query)
 	ret0, _ := ret[0].(map[string]any)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetEvents indicates an expected call of GetEvents.
-func (mr *MockEventRepositoryMockRecorder) GetEvents(startDate, endDate, limit, offset any) *gomock.Call {
+func (mr *MockEventRepositoryMockRecorder) GetEvents(query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEvents", reflect.TypeOf((*MockEventRepository)(nil).GetEvents), startDate, endDate, limit, offset)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEvents", reflect.TypeOf((*MockEventRepository)(nil).GetEvents), query)
 }
 
 // GetFunnelAnalysis mocks base method.
@@ -145,33 +173,18 @@ func (mr *MockEventRepositoryMockRecorder) GetFunnelAnalysis(request any) *gomoc
 }
 
 // GetOnlineUsers mocks base method.
-func (m *MockEventRepository) GetOnlineUsers(timeWindow int) (map[string]any, error) {
+func (m *MockEventRepository) GetOnlineUsers(timeWindow int, ownerID string) (map[string]any, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetOnlineUsers", timeWindow)
+	ret := m.ctrl.Call(m, "GetOnlineUsers", timeWindow, ownerID)
 	ret0, _ := ret[0].(map[string]any)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetOnlineUsers indicates an expected call of GetOnlineUsers.
-func (mr *MockEventRepositoryMockRecorder) GetOnlineUsers(timeWindow any) *gomock.Call {
+func (mr *MockEventRepositoryMockRecorder) GetOnlineUsers(timeWindow, ownerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOnlineUsers", reflect.TypeOf((*MockEventRepository)(nil).GetOnlineUsers), timeWindow)
-}
-
-// GetProjects mocks base method.
-func (m *MockEventRepository) GetProjects() ([]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetProjects")
-	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetProjects indicates an expected call of GetProjects.
-func (mr *MockEventRepositoryMockRecorder) GetProjects() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProjects", reflect.TypeOf((*MockEventRepository)(nil).GetProjects))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOnlineUsers", reflect.TypeOf((*MockEventRepository)(nil).GetOnlineUsers), timeWindow, ownerID)
 }
 
 // GetStats mocks base method.

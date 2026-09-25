@@ -1,14 +1,94 @@
 package middleware
 
 import (
-	"crypto/subtle"
-	"encoding/base64"
+	"context"
+	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/mohamedelhefni/siraaj/internal/domain"
 )
+
+type contextKey string
+
+const (
+	principalContextKey contextKey = "auth-principal"
+	trackingContextKey  contextKey = "tracking-identity"
+)
+
+type AccessTokenAuthenticator interface {
+	AuthenticateAccessToken(token string) (domain.Principal, error)
+}
+
+type TrackingTokenAuthenticator interface {
+	AuthenticateTrackingToken(token string) (domain.TrackingIdentity, error)
+}
+
+type rateLimitEntry struct {
+	count   int
+	resetAt time.Time
+}
+
+type RateLimiter struct {
+	mu          sync.Mutex
+	attempts    map[string]rateLimitEntry
+	limit       int
+	window      time.Duration
+	lastCleanup time.Time
+}
+
+func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
+	return &RateLimiter{attempts: make(map[string]rateLimitEntry), limit: limit, window: window, lastCleanup: time.Now()}
+}
+
+func (l *RateLimiter) Limit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		allowed, retryAfter := l.allow(clientAddress(r), time.Now())
+		if !allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
+			http.Error(w, "Too many attempts", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (l *RateLimiter) allow(client string, now time.Time) (bool, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if now.Sub(l.lastCleanup) >= l.window {
+		for address, attempt := range l.attempts {
+			if !now.Before(attempt.resetAt) {
+				delete(l.attempts, address)
+			}
+		}
+		l.lastCleanup = now
+	}
+	attempt := l.attempts[client]
+	if attempt.resetAt.IsZero() || !now.Before(attempt.resetAt) {
+		attempt = rateLimitEntry{resetAt: now.Add(l.window)}
+	}
+	if attempt.count >= l.limit {
+		return false, attempt.resetAt.Sub(now)
+	}
+	attempt.count++
+	l.attempts[client] = attempt
+	return true, 0
+}
+
+func clientAddress(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
 
 func Logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -30,8 +110,8 @@ func CORS(next http.Handler) http.Handler {
 			cors = "*"
 		}
 		w.Header().Set("Access-Control-Allow-Origin", cors)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Siraaj-Token")
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
@@ -42,67 +122,76 @@ func CORS(next http.Handler) http.Handler {
 	})
 }
 
-// BasicAuth middleware for protecting routes with basic authentication
-// Credentials are read from environment variables: DASHBOARD_USERNAME and DASHBOARD_PASSWORD
-func BasicAuth(next http.Handler) http.Handler {
+func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Get credentials from environment
-		username := os.Getenv("DASHBOARD_USERNAME")
-		password := os.Getenv("DASHBOARD_PASSWORD")
-
-		// If credentials are not set, allow access (authentication disabled)
-		if username == "" || password == "" {
-			next.ServeHTTP(w, r)
-			return
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		if strings.HasPrefix(r.URL.Path, "/api/auth/") {
+			w.Header().Set("Cache-Control", "no-store")
 		}
-
-		// Get Authorization header
-		auth := r.Header.Get("Authorization")
-		if auth == "" {
-			requireAuth(w)
-			return
-		}
-
-		// Parse Basic Auth header
-		const prefix = "Basic "
-		if !strings.HasPrefix(auth, prefix) {
-			requireAuth(w)
-			return
-		}
-
-		// Decode base64 credentials
-		decoded, err := base64.StdEncoding.DecodeString(auth[len(prefix):])
-		if err != nil {
-			requireAuth(w)
-			return
-		}
-
-		// Split username:password
-		credentials := strings.SplitN(string(decoded), ":", 2)
-		if len(credentials) != 2 {
-			requireAuth(w)
-			return
-		}
-
-		// Use constant-time comparison to prevent timing attacks
-		usernameMatch := subtle.ConstantTimeCompare([]byte(credentials[0]), []byte(username)) == 1
-		passwordMatch := subtle.ConstantTimeCompare([]byte(credentials[1]), []byte(password)) == 1
-
-		if !usernameMatch || !passwordMatch {
-			requireAuth(w)
-			return
-		}
-
-		// Authentication successful
 		next.ServeHTTP(w, r)
 	})
 }
 
-// requireAuth sends a 401 Unauthorized response with WWW-Authenticate header
-func requireAuth(w http.ResponseWriter) {
-	w.Header().Set("WWW-Authenticate", `Basic realm="Siraaj Dashboard"`)
+func AccessAuth(authenticator AccessTokenAuthenticator, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := bearerToken(r)
+		if token == "" {
+			unauthorizedJSON(w)
+			return
+		}
+		principal, err := authenticator.AuthenticateAccessToken(token)
+		if err != nil {
+			unauthorizedJSON(w)
+			return
+		}
+		ctx := context.WithValue(r.Context(), principalContextKey, principal)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func TrackingAuth(authenticator TrackingTokenAuthenticator, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimSpace(r.Header.Get("X-Siraaj-Token"))
+		if token == "" {
+			token = bearerToken(r)
+		}
+		identity, err := authenticator.AuthenticateTrackingToken(token)
+		if err != nil {
+			unauthorizedJSON(w)
+			return
+		}
+		ctx := context.WithValue(r.Context(), trackingContextKey, identity)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func PrincipalFromContext(ctx context.Context) domain.Principal {
+	principal, _ := ctx.Value(principalContextKey).(domain.Principal)
+	return principal
+}
+
+func TrackingIdentityFromContext(ctx context.Context) domain.TrackingIdentity {
+	identity, _ := ctx.Value(trackingContextKey).(domain.TrackingIdentity)
+	return identity
+}
+
+func bearerToken(r *http.Request) string {
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	const prefix = "Bearer "
+	if len(auth) <= len(prefix) || !strings.EqualFold(auth[:len(prefix)], prefix) {
+		return ""
+	}
+	return strings.TrimSpace(auth[len(prefix):])
+}
+
+func unauthorizedJSON(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("WWW-Authenticate", "Bearer")
 	w.WriteHeader(http.StatusUnauthorized)
-	if _, err := w.Write([]byte("401 Unauthorized - Authentication required\n")); err != nil {
-		log.Printf("Error writing auth response: %v", err)
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": "authentication required"}); err != nil {
+		log.Printf("Error encoding authentication response: %v", err)
 	}
 }

@@ -10,10 +10,9 @@ import (
 type EventService interface {
 	TrackEvent(event domain.Event) error
 	TrackEventBatch(events []domain.Event) error
-	GetEvents(startDate, endDate time.Time, limit, offset int) (map[string]any, error)
+	GetEvents(query domain.EventQuery) (map[string]any, error)
 	GetStats(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error)
-	GetOnlineUsers(timeWindow int) (map[string]any, error)
-	GetProjects() ([]string, error)
+	GetOnlineUsers(timeWindow int, ownerID string) (map[string]any, error)
 	GetFunnelAnalysis(request domain.FunnelRequest) (*domain.FunnelAnalysisResult, error)
 
 	// New focused endpoints
@@ -55,20 +54,16 @@ func (s *eventService) TrackEventBatch(events []domain.Event) error {
 	return s.repo.CreateBatch(events)
 }
 
-func (s *eventService) GetEvents(startDate, endDate time.Time, limit, offset int) (map[string]any, error) {
-	return s.repo.GetEvents(startDate, endDate, limit, offset)
+func (s *eventService) GetEvents(query domain.EventQuery) (map[string]any, error) {
+	return s.repo.GetEvents(query)
 }
 
 func (s *eventService) GetStats(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error) {
 	return s.repo.GetStats(startDate, endDate, limit, filters)
 }
 
-func (s *eventService) GetOnlineUsers(timeWindow int) (map[string]any, error) {
-	return s.repo.GetOnlineUsers(timeWindow)
-}
-
-func (s *eventService) GetProjects() ([]string, error) {
-	return s.repo.GetProjects()
+func (s *eventService) GetOnlineUsers(timeWindow int, ownerID string) (map[string]any, error) {
+	return s.repo.GetOnlineUsers(timeWindow, ownerID)
 }
 
 func (s *eventService) GetFunnelAnalysis(request domain.FunnelRequest) (*domain.FunnelAnalysisResult, error) {

@@ -2,18 +2,33 @@ package handler
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
+	duckdb "github.com/duckdb/duckdb-go/v2"
 	"github.com/mohamedelhefni/siraaj/geolocation"
 	"github.com/mohamedelhefni/siraaj/internal/domain"
+	"github.com/mohamedelhefni/siraaj/internal/middleware"
+	"github.com/mohamedelhefni/siraaj/internal/migrations"
 	"github.com/mohamedelhefni/siraaj/internal/mocks"
+	"github.com/mohamedelhefni/siraaj/internal/repository"
+	"github.com/mohamedelhefni/siraaj/internal/service"
 	"go.uber.org/mock/gomock"
 )
+
+type trackingAuthenticatorStub struct{}
+
+func (trackingAuthenticatorStub) AuthenticateTrackingToken(string) (domain.TrackingIdentity, error) {
+	return domain.TrackingIdentity{TokenID: "token-1", UserID: "user-1", ProjectID: "owned-project"}, nil
+}
 
 func TestNewEventHandler(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -50,8 +65,8 @@ func TestTrackEvent(t *testing.T) {
 					Return(nil).
 					Times(1)
 			},
-			expectedStatus: http.StatusOK,
-			expectedBody:   `{"status":"ok"}`,
+			expectedStatus: http.StatusNoContent,
+			expectedBody:   "",
 		},
 		{
 			name:           "Invalid method",
@@ -157,8 +172,48 @@ func TestTrackEventWithGeolocation(t *testing.T) {
 
 	handler.TrackEvent(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("Expected status %d, got %d", http.StatusNoContent, w.Code)
+	}
+}
+
+func TestTrackEventUsesTokenProjectInsteadOfRequestProject(t *testing.T) {
+	connector, err := duckdb.NewConnector(filepath.Join(t.TempDir(), "tracking.db"), func(driver.ExecerContext) error { return nil })
+	if err != nil {
+		t.Fatalf("create connector: %v", err)
+	}
+	defer connector.Close()
+	db := sql.OpenDB(connector)
+	defer db.Close()
+	if err := migrations.Migrate(db); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+	appenderConnection, err := connector.Connect(context.Background())
+	if err != nil {
+		t.Fatalf("create appender connection: %v", err)
+	}
+	eventRepository := repository.NewEventRepository(db, appenderConnection)
+	defer eventRepository.Close()
+	eventHandler := NewEventHandler(service.NewEventService(eventRepository), nil)
+	protected := middleware.TrackingAuth(trackingAuthenticatorStub{}, http.HandlerFunc(eventHandler.TrackEvent))
+	req := httptest.NewRequest(http.MethodPost, "/api/track", bytes.NewBufferString(`{"event_name":"page_view","project_id":"victim-project"}`))
+	req.Header.Set("X-Siraaj-Token", "siraaj_trk_test")
+	recorder := httptest.NewRecorder()
+
+	protected.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if err := eventRepository.Flush(); err != nil {
+		t.Fatalf("flush event: %v", err)
+	}
+	var projectID string
+	if err := db.QueryRow("SELECT project_id FROM events").Scan(&projectID); err != nil {
+		t.Fatalf("read tracked event: %v", err)
+	}
+	if projectID != "owned-project" {
+		t.Fatalf("expected token project, got %q", projectID)
 	}
 }
 
@@ -298,7 +353,7 @@ func TestGetEvents(t *testing.T) {
 			queryParams: "",
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
-					GetEvents(gomock.Any(), gomock.Any(), 100, 0).
+					GetEvents(gomock.Any()).
 					Return(map[string]any{
 						"events": []any{},
 						"total":  0,
@@ -312,7 +367,7 @@ func TestGetEvents(t *testing.T) {
 			queryParams: "?limit=50&offset=100",
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
-					GetEvents(gomock.Any(), gomock.Any(), 50, 100).
+					GetEvents(gomock.Any()).
 					Return(map[string]any{
 						"events": []any{},
 						"total":  0,
@@ -326,7 +381,7 @@ func TestGetEvents(t *testing.T) {
 			queryParams: "",
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
-					GetEvents(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					GetEvents(gomock.Any()).
 					Return(nil, errors.New("error")).
 					Times(1)
 			},
@@ -368,7 +423,7 @@ func TestGetOnlineUsers(t *testing.T) {
 			queryParams: "",
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
-					GetOnlineUsers(5).
+					GetOnlineUsers(5, gomock.Any()).
 					Return(map[string]any{
 						"online_users": 42,
 					}, nil).
@@ -381,7 +436,7 @@ func TestGetOnlineUsers(t *testing.T) {
 			queryParams: "?window=10",
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
-					GetOnlineUsers(10).
+					GetOnlineUsers(10, gomock.Any()).
 					Return(map[string]any{
 						"online_users": 50,
 					}, nil).
@@ -394,7 +449,7 @@ func TestGetOnlineUsers(t *testing.T) {
 			queryParams: "",
 			setupMock: func(m *mocks.MockEventService) {
 				m.EXPECT().
-					GetOnlineUsers(gomock.Any()).
+					GetOnlineUsers(gomock.Any(), gomock.Any()).
 					Return(nil, errors.New("error")).
 					Times(1)
 			},
@@ -419,69 +474,6 @@ func TestGetOnlineUsers(t *testing.T) {
 
 			if w.Code != tt.expectedStatus {
 				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
-		})
-	}
-}
-
-func TestGetProjects(t *testing.T) {
-	tests := []struct {
-		name           string
-		setupMock      func(*mocks.MockEventService)
-		expectedStatus int
-		expectedBody   []string
-	}{
-		{
-			name: "Success",
-			setupMock: func(m *mocks.MockEventService) {
-				m.EXPECT().
-					GetProjects().
-					Return([]string{"project1", "project2"}, nil).
-					Times(1)
-			},
-			expectedStatus: http.StatusOK,
-			expectedBody:   []string{"project1", "project2"},
-		},
-		{
-			name: "Service error",
-			setupMock: func(m *mocks.MockEventService) {
-				m.EXPECT().
-					GetProjects().
-					Return(nil, errors.New("error")).
-					Times(1)
-			},
-			expectedStatus: http.StatusInternalServerError,
-			expectedBody:   nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
-			mockService := mocks.NewMockEventService(ctrl)
-			tt.setupMock(mockService)
-
-			handler := NewEventHandler(mockService, nil)
-
-			req := httptest.NewRequest(http.MethodGet, "/projects", nil)
-			w := httptest.NewRecorder()
-
-			handler.GetProjects(w, req)
-
-			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
-
-			if tt.expectedBody != nil {
-				var resp []string
-				if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-					t.Fatalf("Failed to decode response: %v", err)
-				}
-				if len(resp) != len(tt.expectedBody) {
-					t.Errorf("Expected %d projects, got %d", len(tt.expectedBody), len(resp))
-				}
 			}
 		})
 	}

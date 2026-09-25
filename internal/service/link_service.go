@@ -16,11 +16,11 @@ const generatedSlugLength = 8
 var validSlug = regexp.MustCompile(`^[A-Za-z0-9_-]{3,64}$`)
 
 type LinkService interface {
-	Create(destinationURL, customSlug, projectID string) (domain.ShortLink, error)
+	Create(destinationURL, customSlug, projectID, ownerID string) (domain.ShortLink, error)
 	Resolve(slug string) (domain.ShortLink, error)
-	List(projectID string) ([]domain.ShortLinkSummary, error)
+	List(projectID, ownerID string) ([]domain.ShortLinkSummary, error)
 	RecordClick(click domain.LinkClick) error
-	Stats(slug string, startDate, endDate time.Time) (domain.LinkStats, error)
+	Stats(slug, ownerID string, startDate, endDate time.Time) (domain.LinkStats, error)
 }
 
 type linkService struct {
@@ -31,7 +31,7 @@ func NewLinkService(repo repository.LinkRepository) LinkService {
 	return &linkService{repo: repo}
 }
 
-func (s *linkService) Create(destinationURL, customSlug, projectID string) (domain.ShortLink, error) {
+func (s *linkService) Create(destinationURL, customSlug, projectID, ownerID string) (domain.ShortLink, error) {
 	if !validDestination(destinationURL) {
 		return domain.ShortLink{}, domain.ErrInvalidDestination
 	}
@@ -39,7 +39,14 @@ func (s *linkService) Create(destinationURL, customSlug, projectID string) (doma
 		return domain.ShortLink{}, domain.ErrInvalidSlug
 	}
 	if projectID == "" {
-		projectID = "default"
+		return domain.ShortLink{}, domain.ErrProjectUnavailable
+	}
+	owned, err := s.repo.ProjectOwnedBy(projectID, ownerID)
+	if err != nil {
+		return domain.ShortLink{}, err
+	}
+	if !owned {
+		return domain.ShortLink{}, domain.ErrProjectUnavailable
 	}
 	if customSlug != "" {
 		return s.createWithSlug(destinationURL, customSlug, projectID)
@@ -73,8 +80,8 @@ func (s *linkService) Resolve(slug string) (domain.ShortLink, error) {
 	return s.repo.FindBySlug(slug)
 }
 
-func (s *linkService) List(projectID string) ([]domain.ShortLinkSummary, error) {
-	return s.repo.List(projectID)
+func (s *linkService) List(projectID, ownerID string) ([]domain.ShortLinkSummary, error) {
+	return s.repo.List(projectID, ownerID)
 }
 
 func (s *linkService) RecordClick(click domain.LinkClick) error {
@@ -84,8 +91,8 @@ func (s *linkService) RecordClick(click domain.LinkClick) error {
 	return s.repo.RecordClick(click)
 }
 
-func (s *linkService) Stats(slug string, startDate, endDate time.Time) (domain.LinkStats, error) {
-	return s.repo.Stats(slug, startDate, endDate)
+func (s *linkService) Stats(slug, ownerID string, startDate, endDate time.Time) (domain.LinkStats, error) {
+	return s.repo.Stats(slug, ownerID, startDate, endDate)
 }
 
 func validDestination(destinationURL string) bool {

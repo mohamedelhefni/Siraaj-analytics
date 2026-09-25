@@ -50,6 +50,9 @@ func TestShortLinkLifecycleReportsClickOrigins(t *testing.T) {
 	defer database.close(t)
 	repo := repository.NewLinkRepository(database.db)
 	createdAt := time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	if _, err := database.db.Exec("INSERT INTO projects (id, owner_id, created_at) VALUES (?, ?, ?)", "marketing", "owner-1", createdAt); err != nil {
+		t.Fatalf("create owned project: %v", err)
+	}
 	link := domain.ShortLink{Slug: "launch", DestinationURL: "https://example.com/launch", ProjectID: "marketing", CreatedAt: createdAt}
 
 	if err := repo.Create(&link); err != nil {
@@ -66,7 +69,7 @@ func TestShortLinkLifecycleReportsClickOrigins(t *testing.T) {
 		}
 	}
 
-	stats, err := repo.Stats("launch", createdAt, createdAt.Add(48*time.Hour))
+	stats, err := repo.Stats("launch", "owner-1", createdAt, createdAt.Add(48*time.Hour))
 	if err != nil {
 		t.Fatalf("load link stats: %v", err)
 	}

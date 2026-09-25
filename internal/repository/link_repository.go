@@ -13,9 +13,11 @@ import (
 type LinkRepository interface {
 	Create(link *domain.ShortLink) error
 	FindBySlug(slug string) (domain.ShortLink, error)
-	List(projectID string) ([]domain.ShortLinkSummary, error)
+	FindBySlugForOwner(slug, ownerID string) (domain.ShortLink, error)
+	ProjectOwnedBy(projectID, ownerID string) (bool, error)
+	List(projectID, ownerID string) ([]domain.ShortLinkSummary, error)
 	RecordClick(click domain.LinkClick) error
-	Stats(slug string, startDate, endDate time.Time) (domain.LinkStats, error)
+	Stats(slug, ownerID string, startDate, endDate time.Time) (domain.LinkStats, error)
 }
 
 type linkRepository struct {
@@ -55,16 +57,35 @@ func (r *linkRepository) FindBySlug(slug string) (domain.ShortLink, error) {
 	return link, err
 }
 
-func (r *linkRepository) List(projectID string) ([]domain.ShortLinkSummary, error) {
+func (r *linkRepository) FindBySlugForOwner(slug, ownerID string) (domain.ShortLink, error) {
+	var link domain.ShortLink
+	err := r.db.QueryRow(`SELECT l.id, l.slug, l.destination_url, l.project_id, l.created_at
+		FROM short_links l JOIN projects p ON p.id = l.project_id
+		WHERE l.slug = ? AND p.owner_id = ?`, slug, ownerID).
+		Scan(&link.ID, &link.Slug, &link.DestinationURL, &link.ProjectID, &link.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.ShortLink{}, domain.ErrShortLinkNotFound
+	}
+	return link, err
+}
+
+func (r *linkRepository) ProjectOwnedBy(projectID, ownerID string) (bool, error) {
+	var owned bool
+	err := r.db.QueryRow("SELECT EXISTS(SELECT 1 FROM projects WHERE id = ? AND owner_id = ?)", projectID, ownerID).Scan(&owned)
+	return owned, err
+}
+
+func (r *linkRepository) List(projectID, ownerID string) ([]domain.ShortLinkSummary, error) {
 	rows, err := r.db.Query(`
 		SELECT l.id, l.slug, l.destination_url, l.project_id, l.created_at,
 			COUNT(c.id), MAX(c.timestamp)
 		FROM short_links l
+		JOIN projects p ON p.id = l.project_id
 		LEFT JOIN link_clicks c ON c.link_id = l.id
-		WHERE (? = '' OR l.project_id = ?)
+		WHERE p.owner_id = ? AND (? = '' OR l.project_id = ?)
 		GROUP BY l.id, l.slug, l.destination_url, l.project_id, l.created_at
 		ORDER BY l.created_at DESC
-	`, projectID, projectID)
+	`, ownerID, projectID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -94,8 +115,8 @@ func (r *linkRepository) RecordClick(click domain.LinkClick) error {
 	return err
 }
 
-func (r *linkRepository) Stats(slug string, startDate, endDate time.Time) (domain.LinkStats, error) {
-	link, err := r.FindBySlug(slug)
+func (r *linkRepository) Stats(slug, ownerID string, startDate, endDate time.Time) (domain.LinkStats, error) {
+	link, err := r.FindBySlugForOwner(slug, ownerID)
 	if err != nil {
 		return domain.LinkStats{}, err
 	}

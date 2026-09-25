@@ -2,6 +2,14 @@ package domain
 
 import "time"
 
+type EventQuery struct {
+	StartDate time.Time
+	EndDate   time.Time
+	Limit     int
+	Offset    int
+	OwnerID   string
+}
+
 type Event struct {
 	ID              uint64    `json:"id"`
 	Timestamp       time.Time `json:"timestamp"`

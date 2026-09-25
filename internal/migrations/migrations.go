@@ -116,6 +116,77 @@ var migrations = []Migration{
 		DROP SEQUENCE IF EXISTS link_click_id_sequence;
 		DROP SEQUENCE IF EXISTS short_link_id_sequence;`,
 	},
+	{
+		Version:     5,
+		Description: "Create users and project-scoped tracking tokens",
+		Up: `CREATE TABLE IF NOT EXISTS users (
+			id VARCHAR PRIMARY KEY,
+			email VARCHAR NOT NULL UNIQUE,
+			password_hash VARCHAR NOT NULL,
+			role VARCHAR NOT NULL DEFAULT 'user',
+			active BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at TIMESTAMP NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS tracking_tokens (
+			id VARCHAR PRIMARY KEY,
+			user_id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			name VARCHAR NOT NULL,
+			token_hash VARCHAR NOT NULL UNIQUE,
+			token_prefix VARCHAR NOT NULL,
+			created_at TIMESTAMP NOT NULL,
+			last_used_at TIMESTAMP,
+			revoked_at TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_tracking_tokens_user ON tracking_tokens(user_id, created_at);
+		CREATE INDEX IF NOT EXISTS idx_tracking_tokens_project ON tracking_tokens(project_id);`,
+		Down: `DROP INDEX IF EXISTS idx_tracking_tokens_project;
+		DROP INDEX IF EXISTS idx_tracking_tokens_user;
+		DROP TABLE IF EXISTS tracking_tokens;
+		DROP TABLE IF EXISTS users;`,
+	},
+	{
+		Version:     6,
+		Description: "Add project ownership for tenant isolation",
+		Up: `CREATE TABLE IF NOT EXISTS projects (
+			id VARCHAR PRIMARY KEY,
+			owner_id VARCHAR NOT NULL,
+			created_at TIMESTAMP NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_id, created_at);
+		INSERT INTO projects (id, owner_id, created_at)
+		SELECT project_id, user_id, created_at
+		FROM (
+			SELECT project_id, user_id, created_at,
+				ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY created_at, id) AS ownership_order
+			FROM tracking_tokens
+			WHERE project_id IS NOT NULL AND project_id != ''
+		) AS claimed
+		WHERE ownership_order = 1
+		ON CONFLICT DO NOTHING;
+		INSERT INTO projects (id, owner_id, created_at)
+		SELECT legacy.project_id, first_user.id, CURRENT_TIMESTAMP
+		FROM (
+			SELECT DISTINCT project_id FROM events WHERE project_id IS NOT NULL AND project_id != ''
+			UNION
+			SELECT DISTINCT project_id FROM short_links WHERE project_id IS NOT NULL AND project_id != ''
+		) AS legacy
+		CROSS JOIN (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1) AS first_user
+		ON CONFLICT DO NOTHING;`,
+		Down: `DROP INDEX IF EXISTS idx_projects_owner;
+		DROP TABLE IF EXISTS projects;`,
+	},
+	{
+		Version:     7,
+		Description: "Make administrator bootstrap atomic",
+		Up: `CREATE TABLE IF NOT EXISTS auth_bootstrap_guard (
+			id UTINYINT PRIMARY KEY CHECK (id = 1)
+		);
+		INSERT INTO auth_bootstrap_guard (id)
+		SELECT 1 WHERE EXISTS (SELECT 1 FROM users)
+		ON CONFLICT DO NOTHING;`,
+		Down: `DROP TABLE IF EXISTS auth_bootstrap_guard;`,
+	},
 }
 
 func initMigrationTable(db *sql.DB) error {

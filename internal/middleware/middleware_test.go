@@ -5,7 +5,33 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 )
+
+func TestRateLimiterBlocksRepeatedAuthenticationAttempts(t *testing.T) {
+	requestsServed := 0
+	limiter := NewRateLimiter(2, time.Hour)
+	protected := limiter.Limit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestsServed++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		request := httptest.NewRequest(http.MethodPost, "/api/auth/login", nil)
+		request.RemoteAddr = "203.0.113.4:45000"
+		response := httptest.NewRecorder()
+		protected.ServeHTTP(response, request)
+		if attempt <= 2 && response.Code != http.StatusNoContent {
+			t.Fatalf("attempt %d should be allowed, got %d", attempt, response.Code)
+		}
+		if attempt == 3 && (response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") == "") {
+			t.Fatalf("third attempt should be rate limited, got %d", response.Code)
+		}
+	}
+	if requestsServed != 2 {
+		t.Fatalf("expected two downstream requests, got %d", requestsServed)
+	}
+}
 
 func TestLogging(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

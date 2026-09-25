@@ -12,6 +12,7 @@ import (
 
 	"github.com/mohamedelhefni/siraaj/geolocation"
 	"github.com/mohamedelhefni/siraaj/internal/domain"
+	"github.com/mohamedelhefni/siraaj/internal/middleware"
 	"github.com/mohamedelhefni/siraaj/internal/service"
 )
 
@@ -58,12 +59,13 @@ func (h *LinkHandler) Links(w http.ResponseWriter, r *http.Request) {
 
 func (h *LinkHandler) create(w http.ResponseWriter, r *http.Request) {
 	var request createLinkRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&request); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	link, err := h.service.Create(request.DestinationURL, request.CustomSlug, request.ProjectID)
+	ownerID := middleware.PrincipalFromContext(r.Context()).UserID
+	link, err := h.service.Create(request.DestinationURL, request.CustomSlug, request.ProjectID, ownerID)
 	if err != nil {
 		h.writeCreateError(w, err)
 		return
@@ -77,6 +79,8 @@ func (h *LinkHandler) writeCreateError(w http.ResponseWriter, err error) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	case errors.Is(err, domain.ErrSlugTaken):
 		http.Error(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, domain.ErrProjectUnavailable):
+		http.Error(w, "Project not found", http.StatusNotFound)
 	default:
 		log.Printf("Error creating short link: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -84,7 +88,8 @@ func (h *LinkHandler) writeCreateError(w http.ResponseWriter, err error) {
 }
 
 func (h *LinkHandler) list(w http.ResponseWriter, r *http.Request) {
-	links, err := h.service.List(r.URL.Query().Get("project"))
+	ownerID := middleware.PrincipalFromContext(r.Context()).UserID
+	links, err := h.service.List(r.URL.Query().Get("project"), ownerID)
 	if err != nil {
 		log.Printf("Error listing short links: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -110,7 +115,8 @@ func (h *LinkHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	startDate, endDate := linkStatsDates(r)
-	stats, err := h.service.Stats(slug, startDate, endDate)
+	ownerID := middleware.PrincipalFromContext(r.Context()).UserID
+	stats, err := h.service.Stats(slug, ownerID, startDate, endDate)
 	if errors.Is(err, domain.ErrShortLinkNotFound) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return

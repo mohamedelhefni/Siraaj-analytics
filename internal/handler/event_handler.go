@@ -13,6 +13,7 @@ import (
 	"github.com/mohamedelhefni/siraaj/internal/botdetector"
 	"github.com/mohamedelhefni/siraaj/internal/channeldetector"
 	"github.com/mohamedelhefni/siraaj/internal/domain"
+	"github.com/mohamedelhefni/siraaj/internal/middleware"
 	"github.com/mohamedelhefni/siraaj/internal/service"
 )
 
@@ -35,11 +36,12 @@ func (h *EventHandler) TrackEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var event domain.Event
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&event); err != nil {
 		log.Printf("Error Unmarshal json: %v", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
+	event.ProjectID = middleware.TrackingIdentityFromContext(r.Context()).ProjectID
 
 	// Set timestamp if not provided
 	if event.Timestamp.IsZero() {
@@ -93,7 +95,7 @@ func (h *EventHandler) TrackBatchEvents(w http.ResponseWriter, r *http.Request) 
 		Events []domain.Event `json:"events"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&batchRequest); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&batchRequest); err != nil {
 		log.Printf("Error decoding batch request: %v", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -103,6 +105,7 @@ func (h *EventHandler) TrackBatchEvents(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "No events provided", http.StatusBadRequest)
 		return
 	}
+	projectID := middleware.TrackingIdentityFromContext(r.Context()).ProjectID
 
 	// Limit batch size to prevent abuse
 	const maxBatchSize = 100
@@ -117,6 +120,7 @@ func (h *EventHandler) TrackBatchEvents(w http.ResponseWriter, r *http.Request) 
 
 	// Enrich all events in the batch
 	for i := range batchRequest.Events {
+		batchRequest.Events[i].ProjectID = projectID
 		// Set timestamp if not provided
 		if batchRequest.Events[i].Timestamp.IsZero() {
 			batchRequest.Events[i].Timestamp = now
@@ -230,6 +234,7 @@ func (h *EventHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	if page := r.URL.Query().Get("page"); page != "" {
 		filters["page"] = page
 	}
+	filters["owner"] = tenantOwnerID(r)
 
 	stats, err := h.service.GetStats(startDate, endDate, limit, filters)
 	if err != nil {
@@ -279,7 +284,9 @@ func (h *EventHandler) GetEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	events, err := h.service.GetEvents(startDate, endDate, limit, offset)
+	events, err := h.service.GetEvents(domain.EventQuery{
+		StartDate: startDate, EndDate: endDate, Limit: limit, Offset: offset, OwnerID: tenantOwnerID(r),
+	})
 	if err != nil {
 		log.Printf("Error getting events: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -301,7 +308,7 @@ func (h *EventHandler) GetOnlineUsers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	online, err := h.service.GetOnlineUsers(timeWindow)
+	online, err := h.service.GetOnlineUsers(timeWindow, tenantOwnerID(r))
 	if err != nil {
 		log.Printf("Error getting online users: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -311,20 +318,6 @@ func (h *EventHandler) GetOnlineUsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(online); err != nil {
 		log.Printf("Error encoding online users: %v", err)
-	}
-}
-
-func (h *EventHandler) GetProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := h.service.GetProjects()
-	if err != nil {
-		log.Printf("Error getting projects: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(projects); err != nil {
-		log.Printf("Error encoding projects: %v", err)
 	}
 }
 
@@ -371,7 +364,7 @@ func (h *EventHandler) GetFunnelAnalysis(w http.ResponseWriter, r *http.Request)
 	}
 
 	var request domain.FunnelRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&request); err != nil {
 		log.Printf("Error decoding funnel request: %v", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -387,11 +380,15 @@ func (h *EventHandler) GetFunnelAnalysis(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Start date and end date are required", http.StatusBadRequest)
 		return
 	}
+	if request.Filters == nil {
+		request.Filters = make(map[string]string)
+	}
+	request.Filters["owner"] = tenantOwnerID(r)
 
 	result, err := h.service.GetFunnelAnalysis(request)
 	if err != nil {
 		log.Printf("Error getting funnel analysis: %v", err)
-		http.Error(w, fmt.Sprintf("Error analyzing funnel: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -515,8 +512,13 @@ func parseFiltersAndDates(r *http.Request) (startDate, endDate time.Time, limit 
 	if page := r.URL.Query().Get("page"); page != "" {
 		filters["page"] = page
 	}
+	filters["owner"] = tenantOwnerID(r)
 
 	return
+}
+
+func tenantOwnerID(r *http.Request) string {
+	return middleware.PrincipalFromContext(r.Context()).UserID
 }
 
 // GetTopStats returns main statistics (counts, rates, trends)

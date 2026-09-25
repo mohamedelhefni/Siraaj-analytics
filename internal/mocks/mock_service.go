@@ -87,18 +87,18 @@ func (mr *MockEventServiceMockRecorder) GetEntryExitPages(startDate, endDate, li
 }
 
 // GetEvents mocks base method.
-func (m *MockEventService) GetEvents(startDate, endDate time.Time, limit, offset int) (map[string]any, error) {
+func (m *MockEventService) GetEvents(query domain.EventQuery) (map[string]any, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEvents", startDate, endDate, limit, offset)
+	ret := m.ctrl.Call(m, "GetEvents", query)
 	ret0, _ := ret[0].(map[string]any)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetEvents indicates an expected call of GetEvents.
-func (mr *MockEventServiceMockRecorder) GetEvents(startDate, endDate, limit, offset any) *gomock.Call {
+func (mr *MockEventServiceMockRecorder) GetEvents(query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEvents", reflect.TypeOf((*MockEventService)(nil).GetEvents), startDate, endDate, limit, offset)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEvents", reflect.TypeOf((*MockEventService)(nil).GetEvents), query)
 }
 
 // GetFunnelAnalysis mocks base method.
@@ -117,33 +117,18 @@ func (mr *MockEventServiceMockRecorder) GetFunnelAnalysis(request any) *gomock.C
 }
 
 // GetOnlineUsers mocks base method.
-func (m *MockEventService) GetOnlineUsers(timeWindow int) (map[string]any, error) {
+func (m *MockEventService) GetOnlineUsers(timeWindow int, ownerID string) (map[string]any, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetOnlineUsers", timeWindow)
+	ret := m.ctrl.Call(m, "GetOnlineUsers", timeWindow, ownerID)
 	ret0, _ := ret[0].(map[string]any)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetOnlineUsers indicates an expected call of GetOnlineUsers.
-func (mr *MockEventServiceMockRecorder) GetOnlineUsers(timeWindow any) *gomock.Call {
+func (mr *MockEventServiceMockRecorder) GetOnlineUsers(timeWindow, ownerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOnlineUsers", reflect.TypeOf((*MockEventService)(nil).GetOnlineUsers), timeWindow)
-}
-
-// GetProjects mocks base method.
-func (m *MockEventService) GetProjects() ([]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetProjects")
-	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetProjects indicates an expected call of GetProjects.
-func (mr *MockEventServiceMockRecorder) GetProjects() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProjects", reflect.TypeOf((*MockEventService)(nil).GetProjects))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOnlineUsers", reflect.TypeOf((*MockEventService)(nil).GetOnlineUsers), timeWindow, ownerID)
 }
 
 // GetStats mocks base method.

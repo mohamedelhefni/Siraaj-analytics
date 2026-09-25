@@ -26,10 +26,9 @@ const (
 type EventRepository interface {
 	Create(event domain.Event) error
 	CreateBatch(events []domain.Event) error
-	GetEvents(startDate, endDate time.Time, limit, offset int) (map[string]any, error)
+	GetEvents(query domain.EventQuery) (map[string]any, error)
 	GetStats(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error)
-	GetOnlineUsers(timeWindow int) (map[string]any, error)
-	GetProjects() ([]string, error)
+	GetOnlineUsers(timeWindow int, ownerID string) (map[string]any, error)
 	GetFunnelAnalysis(request domain.FunnelRequest) (*domain.FunnelAnalysisResult, error)
 
 	// New focused endpoints
@@ -278,17 +277,18 @@ func (r *eventRepository) Close() error {
 	return nil
 }
 
-func (r *eventRepository) GetEvents(startDate, endDate time.Time, limit, offset int) (map[string]any, error) {
+func (r *eventRepository) GetEvents(eventQuery domain.EventQuery) (map[string]any, error) {
 	query := `
 		SELECT id, timestamp, event_name, user_id, session_id, session_duration, url, referrer,
 			user_agent, ip, country, browser, os, device, is_bot, project_id, channel
 		FROM events
 		WHERE date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)
+			AND project_id IN (SELECT id FROM projects WHERE owner_id = ?)
 		ORDER BY timestamp DESC
 		LIMIT ? OFFSET ?
 	`
 
-	rows, err := r.db.Query(query, startDate, endDate, limit, offset)
+	rows, err := r.db.Query(query, eventQuery.StartDate, eventQuery.EndDate, eventQuery.OwnerID, eventQuery.Limit, eventQuery.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -315,8 +315,9 @@ func (r *eventRepository) GetEvents(startDate, endDate time.Time, limit, offset 
 
 	// Get total count
 	var total int64
-	countQuery := `SELECT COUNT(*) FROM events WHERE date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)`
-	err = r.db.QueryRow(countQuery, startDate, endDate).Scan(&total)
+	countQuery := `SELECT COUNT(*) FROM events WHERE date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)
+		AND project_id IN (SELECT id FROM projects WHERE owner_id = ?)`
+	err = r.db.QueryRow(countQuery, eventQuery.StartDate, eventQuery.EndDate, eventQuery.OwnerID).Scan(&total)
 	if err != nil {
 		return nil, err
 	}
@@ -324,8 +325,8 @@ func (r *eventRepository) GetEvents(startDate, endDate time.Time, limit, offset 
 	return map[string]any{
 		"events": events,
 		"total":  total,
-		"limit":  limit,
-		"offset": offset,
+		"limit":  eventQuery.Limit,
+		"offset": eventQuery.Offset,
 	}, nil
 }
 
@@ -339,6 +340,8 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 	// Build WHERE clause based on filters
 	whereClause := "date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)"
 	args := []any{startDate, endDate}
+	whereClause += " AND project_id IN (SELECT id FROM projects WHERE owner_id = ?)"
+	args = append(args, filters["owner"])
 
 	if projectID, ok := filters["project"]; ok && projectID != "" {
 		whereClause += " AND project_id = ?"
@@ -971,7 +974,7 @@ func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filt
 	return stats, nil
 }
 
-func (r *eventRepository) GetOnlineUsers(timeWindow int) (map[string]any, error) {
+func (r *eventRepository) GetOnlineUsers(timeWindow int, ownerID string) (map[string]any, error) {
 	cutoffTime := time.Now().UTC().Add(-time.Duration(timeWindow) * time.Minute)
 	// Round down to the nearest hour for date_hour filtering
 	cutoffHour := cutoffTime.Truncate(time.Hour)
@@ -984,10 +987,11 @@ func (r *eventRepository) GetOnlineUsers(timeWindow int) (map[string]any, error)
 			APPROX_COUNT_DISTINCT(session_id) as active_sessions
 		FROM events 
 		WHERE date_hour >= ? AND timestamp >= ?
+			AND project_id IN (SELECT id FROM projects WHERE owner_id = ?)
 	`
 
 	var onlineUsers, activeSessions int
-	err := r.db.QueryRow(query, cutoffHour, cutoffTime).Scan(&onlineUsers, &activeSessions)
+	err := r.db.QueryRow(query, cutoffHour, cutoffTime, ownerID).Scan(&onlineUsers, &activeSessions)
 	if err != nil {
 		return nil, err
 	}
@@ -998,32 +1002,6 @@ func (r *eventRepository) GetOnlineUsers(timeWindow int) (map[string]any, error)
 		"time_window_mins": timeWindow,
 		"cutoff_time":      cutoffTime,
 	}, nil
-}
-
-func (r *eventRepository) GetProjects() ([]string, error) {
-	query := `SELECT DISTINCT project_id FROM events WHERE project_id IS NOT NULL AND project_id != '' ORDER BY project_id`
-
-	rows, err := r.db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		if err := rows.Close(); err != nil {
-			log.Printf("Warning: failed to close rows: %v", err)
-		}
-	}()
-
-	var projects []string
-	for rows.Next() {
-		var projectID string
-		if err := rows.Scan(&projectID); err != nil {
-			continue
-		}
-		projects = append(projects, projectID)
-	}
-
-	return projects, nil
 }
 
 func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*domain.FunnelAnalysisResult, error) {
@@ -1053,6 +1031,8 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 	// Build base WHERE clause for global filters using date_day partitioning for better performance
 	baseWhereClause := "date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)"
 	baseArgs := []any{startDate, endDate}
+	baseWhereClause += " AND project_id IN (SELECT id FROM projects WHERE owner_id = ?)"
+	baseArgs = append(baseArgs, request.Filters["owner"])
 
 	if projectID, ok := request.Filters["project"]; ok && projectID != "" {
 		baseWhereClause += " AND project_id = ?"
@@ -1217,6 +1197,8 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 					// Build WHERE clause with e. prefix using date_day partitioning for better performance
 					cteWhereClause = "e.date_day >= CAST(? AS DATE) AND e.date_day <= CAST(? AS DATE)"
 					cteArgs = []any{startDate, endDate}
+					cteWhereClause += " AND e.project_id IN (SELECT id FROM projects WHERE owner_id = ?)"
+					cteArgs = append(cteArgs, request.Filters["owner"])
 
 					// Add global filters with e. prefix
 					if projectID, ok := request.Filters["project"]; ok && projectID != "" {
@@ -1459,6 +1441,8 @@ func (r *eventRepository) GetFunnelAnalysis(request domain.FunnelRequest) (*doma
 func buildWhereClause(startDate, endDate time.Time, filters map[string]string) (string, []any) {
 	whereClause := "date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)"
 	args := []any{startDate, endDate}
+	whereClause += " AND project_id IN (SELECT id FROM projects WHERE owner_id = ?)"
+	args = append(args, filters["owner"])
 
 	if projectID, ok := filters["project"]; ok && projectID != "" {
 		whereClause += " AND project_id = ?"
