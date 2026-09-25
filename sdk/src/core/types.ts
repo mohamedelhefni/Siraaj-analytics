@@ -2,6 +2,7 @@
 export interface AnalyticsConfig {
   apiUrl?: string;
   projectId?: string;
+  trackingToken?: string; // Project-scoped write token created in the dashboard
   autoTrack?: boolean;
   debug?: boolean;
   bufferSize?: number;
@@ -65,4 +66,3 @@ export interface Analytics {
   flush(async?: boolean): Promise<any>;
   destroy(): void;
 }
-

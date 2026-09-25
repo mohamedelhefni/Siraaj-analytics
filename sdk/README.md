@@ -12,12 +12,14 @@
   var analytics = new SiraajAnalytics.AnalyticsCore({
     apiUrl: 'http://localhost:8080',
     projectId: 'my-website',
+    trackingToken: 'siraaj_trk_your_project_token',
     autoTrack: true
   });
   
   analytics.init({
     apiUrl: 'http://localhost:8080',
-    projectId: 'my-website'
+    projectId: 'my-website',
+    trackingToken: 'siraaj_trk_your_project_token'
   });
 </script>
 ```
@@ -145,9 +147,10 @@ analytics.init({
 
 ```javascript
 var analytics = new SiraajAnalytics.AnalyticsCore({
-  // Required
+  // Required (create the token in Dashboard → Users & tracking keys)
   apiUrl: 'http://localhost:8080',     // Your Siraaj server URL
   projectId: 'my-website',             // Your project ID
+  trackingToken: 'siraaj_trk_...',     // Project-scoped write token
   
   // Optional
   autoTrack: true,                     // Enable auto-tracking (default: true)

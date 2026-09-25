@@ -36,6 +36,7 @@
         this.config = {
           apiUrl: config.apiUrl || "http://localhost:8080",
           projectId: config.projectId || "default",
+          trackingToken: config.trackingToken || "",
           autoTrack: config.autoTrack !== false,
           bufferSize: Math.min(config.bufferSize || 10, this.MAX_BUFFER_SIZE),
           flushInterval: config.flushInterval || 3e4,
@@ -269,7 +270,7 @@
       async sendBatch(events, useBeacon) {
         if (events.length === 0) return;
         const endpoint = `${this.config.apiUrl}/api/track/batch`;
-        if (useBeacon && typeof navigator !== "undefined" && "sendBeacon" in navigator) {
+        if (useBeacon && !this.config.trackingToken && typeof navigator !== "undefined" && "sendBeacon" in navigator) {
           for (const event of events) {
             try {
               const blob = new Blob([JSON.stringify(event)], { type: "application/json" });
@@ -290,7 +291,8 @@
           response = await fetch(endpoint, {
             method: "POST",
             headers: {
-              "Content-Type": "application/json"
+              "Content-Type": "application/json",
+              "X-Siraaj-Token": this.config.trackingToken
             },
             body: JSON.stringify({ events }),
             keepalive: true,

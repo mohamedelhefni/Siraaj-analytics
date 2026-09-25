@@ -51,22 +51,17 @@
     </style>
 
     <!-- Include Siraaj Analytics SDK -->
-    <script src="../analytics.js"></script>
+    <script src="../analytics.min.js"></script>
 
     <!-- Initialize Analytics -->
     <script>
         // Create analytics instance
         var analytics = new SiraajAnalytics.AnalyticsCore({
-            apiUrl: 'http://localhost:8080',
+            apiUrl: 'http://localhost:8081',
             projectId: 'demo-website',
             autoTrack: true,
-            debug: true
-        });
-
-        // Initialize
-        analytics.init({
-            apiUrl: 'http://localhost:8080',
-            projectId: 'demo-website'
+            debug: true,
+            trackingToken:"siraaj_trk_WgfCVn1xJzvYYYjqcpbXpE_1nsXA9XZld6q1eornWIE"
         });
 
         console.log('✅ Siraaj Analytics initialized!');
