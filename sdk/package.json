@@ -5,11 +5,12 @@
   "main": "analytics.js",
   "module": "dist/analytics.esm.js",
   "types": "dist/analytics.d.ts",
+  "sideEffects": false,
   "exports": {
     ".": {
+      "types": "./dist/analytics.d.ts",
       "import": "./dist/analytics.esm.js",
-      "require": "./analytics.js",
-      "types": "./dist/analytics.d.ts"
+      "require": "./analytics.js"
     }
   },
   "files": [
@@ -20,9 +21,9 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "pnpm run clean && rollup -c rollup.config.js",
+    "build": "rm -rf dist analytics.js analytics.min.js && rollup -c rollup.config.mjs",
     "clean": "rm -rf dist analytics.js analytics.min.js",
-    "dev": "rollup -c rollup.config.js -w",
+    "dev": "rollup -c rollup.config.mjs -w",
     "typecheck": "tsc --noEmit",
     "size": "size-limit"
   },
@@ -38,18 +39,13 @@
   "author": "Mohamed Elhefni <mohamed.elhefni@outlook.com>",
   "license": "MIT",
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^28.0.1",
-    "@rollup/plugin-node-resolve": "^15.3.0",
     "@rollup/plugin-terser": "^0.4.4",
-    "@rollup/plugin-typescript": "^12.1.1",
     "@size-limit/preset-small-lib": "^11.1.6",
-    "@types/node": "^22.18.12",
     "esbuild": "^0.24.0",
     "rollup": "^4.24.4",
     "rollup-plugin-dts": "^6.1.1",
     "rollup-plugin-esbuild": "^6.1.1",
     "size-limit": "^11.1.6",
-    "terser": "^5.36.0",
     "typescript": "^5.6.3"
   },
   "size-limit": [
