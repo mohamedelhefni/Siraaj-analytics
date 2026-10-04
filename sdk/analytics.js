@@ -12,6 +12,9 @@
         this.userId = null;
         this.flushTimer = null;
         this.retryTimer = null;
+        // While the server is failing, nothing is sent before backoffUntil; the delay doubles per failure.
+        this.backoffUntil = 0;
+        this.backoffDelay = 0;
         this.sessionStartTime = null;
         this.isDestroyed = false;
         this.initialized = false;
@@ -193,6 +196,11 @@
         const events = [...this.buffer];
         this.buffer = [];
         this.log("Flushing", events.length, "events");
+        if (Date.now() < this.backoffUntil) {
+          events.forEach((event) => this.queueFailedEvent(event));
+          this.scheduleRetry();
+          return;
+        }
         if (useBeacon && this.config.useBeacon && typeof navigator !== "undefined" && "sendBeacon" in navigator) {
           this.sendBatch(events, true);
         } else {
@@ -302,7 +310,7 @@
         const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
         let response;
         try {
-          response = await fetch(endpoint, {
+          response = await this.backoffFetch(endpoint, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -320,6 +328,27 @@
         }
         this.log("Batch sent:", events.length);
       }
+      // fetch that backs off on network errors, 5xx and 429, and resets once the server answers.
+      async backoffFetch(url, init) {
+        try {
+          const response = await fetch(url, init);
+          if (response.status >= 500 || response.status === 429) {
+            this.backOff();
+          } else {
+            this.backoffDelay = 0;
+            this.backoffUntil = 0;
+          }
+          return response;
+        } catch (err) {
+          this.backOff();
+          throw err;
+        }
+      }
+      backOff() {
+        this.backoffDelay = Math.min(Math.max(this.backoffDelay * 2, this.RETRY_BASE_DELAY), this.RETRY_MAX_DELAY);
+        this.backoffUntil = Date.now() + this.backoffDelay;
+        this.log("Server unavailable, pausing requests for", this.backoffDelay, "ms");
+      }
       queueFailedEvent(event) {
         if (this.failedQueue.length >= this.config.maxQueueSize) {
           this.log("Queue full, dropping event");
@@ -334,7 +363,7 @@
       scheduleRetry() {
         if (this.retryTimer || this.failedQueue.length === 0) return;
         const now = Date.now();
-        const nextTime = Math.min(...this.failedQueue.map((item) => item.nextRetry));
+        const nextTime = Math.max(this.backoffUntil, Math.min(...this.failedQueue.map((item) => item.nextRetry)));
         const delay = Math.max(nextTime - now, 100);
         this.retryTimer = window.setTimeout(() => {
           this.retryTimer = null;
@@ -343,6 +372,10 @@
       }
       async processFailedQueue() {
         if (this.failedQueue.length === 0) return;
+        if (Date.now() < this.backoffUntil) {
+          this.scheduleRetry();
+          return;
+        }
         const now = Date.now();
         const readyToRetry = [];
         const notReady = [];
@@ -776,7 +809,7 @@
       async loadSurveys() {
         this.surveyEvents = /* @__PURE__ */ new Set();
         try {
-          const response = await fetch(`${this.config.apiUrl}/api/surveys/active`, {
+          const response = await this.backoffFetch(`${this.config.apiUrl}/api/surveys/active`, {
             headers: { "X-Siraaj-Token": this.config.trackingToken }
           });
           this.surveys = response.ok ? await response.json() : [];
@@ -788,7 +821,15 @@
       }
       maybeShowSurvey(eventName) {
         const survey = this.surveys?.find((s) => s.trigger_event === eventName);
-        if (!survey || typeof document === "undefined" || document.getElementById("siraaj-survey")) return;
+        if (!survey || typeof document === "undefined") return;
+        if (survey.delay_seconds) {
+          setTimeout(() => this.showSurveyOnce(survey), survey.delay_seconds * 1e3);
+        } else {
+          this.showSurveyOnce(survey);
+        }
+      }
+      showSurveyOnce(survey) {
+        if (document.getElementById("siraaj-survey")) return;
         const seenKey = this.STORAGE_PREFIX + "survey_" + survey.id;
         try {
           if (localStorage.getItem(seenKey)) return;
@@ -896,7 +937,7 @@ ${S} .sj-mark:hover{color:#4b5563}
         this.surveyPost("event", { survey_id: survey.id, kind: "shown" });
       }
       surveyPost(path, body) {
-        fetch(`${this.config.apiUrl}/api/surveys/${path}`, {
+        this.backoffFetch(`${this.config.apiUrl}/api/surveys/${path}`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Siraaj-Token": this.config.trackingToken },
           body: JSON.stringify(body),

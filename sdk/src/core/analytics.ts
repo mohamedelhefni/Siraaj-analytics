@@ -13,6 +13,9 @@ class AnalyticsCore {
     private userId: string | null = null;
     private flushTimer: number | null = null;
     private retryTimer: number | null = null;
+    // While the server is failing, nothing is sent before backoffUntil; the delay doubles per failure.
+    private backoffUntil = 0;
+    private backoffDelay = 0;
     private sessionStartTime: number | null = null;
     private isDestroyed: boolean = false;
     private initialized: boolean = false;
@@ -241,6 +244,12 @@ class AnalyticsCore {
 
         this.log('Flushing', events.length, 'events');
 
+        if (Date.now() < this.backoffUntil) {
+            events.forEach(event => this.queueFailedEvent(event));
+            this.scheduleRetry();
+            return;
+        }
+
         if (useBeacon && this.config.useBeacon && typeof navigator !== 'undefined' && 'sendBeacon' in navigator) {
             this.sendBatch(events, true);
         } else {
@@ -368,7 +377,7 @@ class AnalyticsCore {
 
         let response: Response;
         try {
-            response = await fetch(endpoint, {
+            response = await this.backoffFetch(endpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -389,6 +398,29 @@ class AnalyticsCore {
         this.log('Batch sent:', events.length);
     }
 
+    // fetch that backs off on network errors, 5xx and 429, and resets once the server answers.
+    private async backoffFetch(url: string, init: RequestInit): Promise<Response> {
+        try {
+            const response = await fetch(url, init);
+            if (response.status >= 500 || response.status === 429) {
+                this.backOff();
+            } else {
+                this.backoffDelay = 0;
+                this.backoffUntil = 0;
+            }
+            return response;
+        } catch (err) {
+            this.backOff();
+            throw err;
+        }
+    }
+
+    private backOff(): void {
+        this.backoffDelay = Math.min(Math.max(this.backoffDelay * 2, this.RETRY_BASE_DELAY), this.RETRY_MAX_DELAY);
+        this.backoffUntil = Date.now() + this.backoffDelay;
+        this.log('Server unavailable, pausing requests for', this.backoffDelay, 'ms');
+    }
+
     private queueFailedEvent(event: EventData): void {
         if (this.failedQueue.length >= this.config.maxQueueSize) {
             this.log('Queue full, dropping event');
@@ -406,7 +438,7 @@ class AnalyticsCore {
         if (this.retryTimer || this.failedQueue.length === 0) return;
 
         const now = Date.now();
-        const nextTime = Math.min(...this.failedQueue.map(item => item.nextRetry));
+        const nextTime = Math.max(this.backoffUntil, Math.min(...this.failedQueue.map(item => item.nextRetry)));
         const delay = Math.max(nextTime - now, 100);
 
         this.retryTimer = window.setTimeout(() => {
@@ -417,6 +449,10 @@ class AnalyticsCore {
 
     private async processFailedQueue(): Promise<void> {
         if (this.failedQueue.length === 0) return;
+        if (Date.now() < this.backoffUntil) {
+            this.scheduleRetry();
+            return;
+        }
 
         const now = Date.now();
         const readyToRetry: QueuedRequest[] = [];
@@ -931,7 +967,7 @@ class AnalyticsCore {
     private async loadSurveys(): Promise<void> {
         this.surveyEvents = new Set();
         try {
-            const response = await fetch(`${this.config.apiUrl}/api/surveys/active`, {
+            const response = await this.backoffFetch(`${this.config.apiUrl}/api/surveys/active`, {
                 headers: { 'X-Siraaj-Token': this.config.trackingToken },
             });
             this.surveys = response.ok ? await response.json() : [];
@@ -944,7 +980,17 @@ class AnalyticsCore {
 
     private maybeShowSurvey(eventName: string): void {
         const survey = this.surveys?.find(s => s.trigger_event === eventName);
-        if (!survey || typeof document === 'undefined' || document.getElementById('siraaj-survey')) return;
+        if (!survey || typeof document === 'undefined') return;
+        // Checks run when the delay ends, so a survey opened meanwhile still blocks this one.
+        if (survey.delay_seconds) {
+            setTimeout(() => this.showSurveyOnce(survey), survey.delay_seconds * 1000);
+        } else {
+            this.showSurveyOnce(survey);
+        }
+    }
+
+    private showSurveyOnce(survey: Survey): void {
+        if (document.getElementById('siraaj-survey')) return;
         const seenKey = this.STORAGE_PREFIX + 'survey_' + survey.id;
         try {
             if (localStorage.getItem(seenKey)) return;
@@ -1057,7 +1103,7 @@ ${S} .sj-mark:hover{color:#4b5563}
     }
 
     private surveyPost(path: 'respond' | 'event', body: Record<string, unknown>): void {
-        fetch(`${this.config.apiUrl}/api/surveys/${path}`, {
+        this.backoffFetch(`${this.config.apiUrl}/api/surveys/${path}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Siraaj-Token': this.config.trackingToken },
             body: JSON.stringify(body),

@@ -21,6 +21,7 @@ export interface Survey {
   id: number;
   name: string;
   trigger_event: string;
+  delay_seconds?: number;
   questions: { type: 'rating' | 'choice' | 'text'; text: string; options?: string[] }[];
 }
 

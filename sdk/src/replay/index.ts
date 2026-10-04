@@ -35,8 +35,9 @@ export function startReplay(analytics: AnalyticsCore, options: ReplayOptions = {
         body,
         keepalive: keepalive && body.size < 60000, // browsers cap keepalive bodies at 64KB
       }))
-      .then(response => { if (response.status === 413) stop(); })
-      .catch(() => {});
+      // A full chunk is lost on any failure, so stop rather than keep posting to a server that is down.
+      .then(response => { if (response.status === 413 || response.status === 429 || response.status >= 500) halt(); })
+      .catch(halt);
   };
 
   const stopRecording = record({
@@ -51,10 +52,13 @@ export function startReplay(analytics: AnalyticsCore, options: ReplayOptions = {
   const onHide = () => { if (document.visibilityState === 'hidden') upload(true); };
   document.addEventListener('visibilitychange', onHide);
 
-  function stop() {
+  function halt() {
     stopRecording?.();
     clearInterval(timer);
     document.removeEventListener('visibilitychange', onHide);
+  }
+  function stop() {
+    halt();
     upload(true);
   }
   return stop;
