@@ -15,11 +15,22 @@ type SurveyHandler struct {
 }
 
 type createSurveyRequest struct {
-	ProjectID    string                  `json:"project_id"`
-	Name         string                  `json:"name"`
-	TriggerEvent string                  `json:"trigger_event"`
-	DelaySeconds int                     `json:"delay_seconds"`
-	Questions    []domain.SurveyQuestion `json:"questions"`
+	ProjectID     string                  `json:"project_id"`
+	Name          string                  `json:"name"`
+	TriggerEvent  string                  `json:"trigger_event"`
+	DelaySeconds  int                     `json:"delay_seconds"`
+	Frequency     string                  `json:"frequency"`
+	RepeatDays    int                     `json:"repeat_days"`
+	SamplePercent int                     `json:"sample_percent"`
+	Questions     []domain.SurveyQuestion `json:"questions"`
+}
+
+func (request createSurveyRequest) survey() domain.Survey {
+	return domain.Survey{
+		ProjectID: request.ProjectID, Name: request.Name, TriggerEvent: request.TriggerEvent,
+		DelaySeconds: request.DelaySeconds, Frequency: request.Frequency, RepeatDays: request.RepeatDays,
+		SamplePercent: request.SamplePercent, Questions: request.Questions,
+	}
 }
 
 type surveyResponseRequest struct {
@@ -33,7 +44,7 @@ func NewSurveyHandler(surveyService service.SurveyService) *SurveyHandler {
 }
 
 // Surveys manages the signed-in user's surveys: GET list, POST create,
-// PATCH ?id= {"active": bool}, DELETE ?id=.
+// PUT ?id= edit (same body as create, project ignored), PATCH ?id= {"active": bool}, DELETE ?id=.
 func (h *SurveyHandler) Surveys(w http.ResponseWriter, r *http.Request) {
 	ownerID := middleware.PrincipalFromContext(r.Context()).UserID
 	switch r.Method {
@@ -45,11 +56,17 @@ func (h *SurveyHandler) Surveys(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &request) {
 			return
 		}
-		survey, err := h.service.Create(domain.Survey{
-			ProjectID: request.ProjectID, Name: request.Name, TriggerEvent: request.TriggerEvent,
-			DelaySeconds: request.DelaySeconds, Questions: request.Questions,
-		}, ownerID)
+		survey, err := h.service.Create(request.survey(), ownerID)
 		writeSurveyResult(w, http.StatusCreated, survey, err)
+	case http.MethodPut:
+		id, ok := surveyID(w, r)
+		var request createSurveyRequest
+		if !ok || !decodeJSON(w, r, &request) {
+			return
+		}
+		survey := request.survey()
+		survey.ID = id
+		writeSurveyResult(w, http.StatusOK, map[string]bool{"updated": true}, h.service.Update(survey, ownerID))
 	case http.MethodPatch:
 		id, ok := surveyID(w, r)
 		var request struct {

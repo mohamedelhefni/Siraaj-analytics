@@ -17,10 +17,12 @@ const (
 	maxSurveyText      = 500
 	maxAnswerLength    = 2000
 	maxSurveyDelay     = 3600
+	maxRepeatDays      = 365
 )
 
 type SurveyService interface {
 	Create(survey domain.Survey, ownerID string) (domain.Survey, error)
+	Update(survey domain.Survey, ownerID string) error
 	List(ownerID string) ([]domain.Survey, error)
 	SetActive(id uint64, ownerID string, active bool) error
 	Delete(id uint64, ownerID string) error
@@ -39,18 +41,7 @@ func NewSurveyService(repo repository.SurveyRepository) SurveyService {
 }
 
 func (s *surveyService) Create(survey domain.Survey, ownerID string) (domain.Survey, error) {
-	survey.Name = strings.TrimSpace(survey.Name)
-	survey.TriggerEvent = strings.TrimSpace(survey.TriggerEvent)
-	if survey.Name == "" || len(survey.Name) > maxSurveyText {
-		return domain.Survey{}, invalid("name is required")
-	}
-	if survey.TriggerEvent == "" || len(survey.TriggerEvent) > maxSurveyText {
-		return domain.Survey{}, invalid("trigger_event is required")
-	}
-	if survey.DelaySeconds < 0 || survey.DelaySeconds > maxSurveyDelay {
-		return domain.Survey{}, invalid(fmt.Sprintf("delay_seconds must be 0-%d", maxSurveyDelay))
-	}
-	if err := validateQuestions(survey.Questions); err != nil {
+	if err := normalizeSurvey(&survey); err != nil {
 		return domain.Survey{}, err
 	}
 	owned, err := s.repo.ProjectOwnedBy(survey.ProjectID, ownerID)
@@ -67,6 +58,49 @@ func (s *surveyService) Create(survey domain.Survey, ownerID string) (domain.Sur
 		return domain.Survey{}, err
 	}
 	return survey, nil
+}
+
+// Update replaces an owned survey's editable settings; project, status and counters stay.
+func (s *surveyService) Update(survey domain.Survey, ownerID string) error {
+	if err := normalizeSurvey(&survey); err != nil {
+		return err
+	}
+	return s.repo.Update(survey, ownerID)
+}
+
+// normalizeSurvey trims, defaults and validates the settings Create and Update share.
+func normalizeSurvey(survey *domain.Survey) error {
+	survey.Name = strings.TrimSpace(survey.Name)
+	survey.TriggerEvent = strings.TrimSpace(survey.TriggerEvent)
+	if survey.Name == "" || len(survey.Name) > maxSurveyText {
+		return invalid("name is required")
+	}
+	if survey.TriggerEvent == "" || len(survey.TriggerEvent) > maxSurveyText {
+		return invalid("trigger_event is required")
+	}
+	if survey.DelaySeconds < 0 || survey.DelaySeconds > maxSurveyDelay {
+		return invalid(fmt.Sprintf("delay_seconds must be 0-%d", maxSurveyDelay))
+	}
+	if survey.Frequency == "" {
+		survey.Frequency = domain.SurveyOnce
+	}
+	switch survey.Frequency {
+	case domain.SurveyOnce:
+		survey.RepeatDays = 0
+	case domain.SurveyUntilAnswered, domain.SurveyRecurring:
+		if survey.RepeatDays < 1 || survey.RepeatDays > maxRepeatDays {
+			return invalid(fmt.Sprintf("repeat_days must be 1-%d", maxRepeatDays))
+		}
+	default:
+		return invalid("frequency must be once, until_answered or recurring")
+	}
+	if survey.SamplePercent == 0 {
+		survey.SamplePercent = 100
+	}
+	if survey.SamplePercent < 1 || survey.SamplePercent > 100 {
+		return invalid("sample_percent must be 1-100")
+	}
+	return validateQuestions(survey.Questions)
 }
 
 func (s *surveyService) List(ownerID string) ([]domain.Survey, error) {

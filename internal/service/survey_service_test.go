@@ -57,3 +57,34 @@ func TestSurveyDelayValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestSurveyDisplayRules(t *testing.T) {
+	base := domain.Survey{Name: "NPS", TriggerEvent: "checkout", Questions: []domain.SurveyQuestion{{Type: "text", Text: "Thoughts?"}}}
+
+	defaults := base
+	if err := normalizeSurvey(&defaults); err != nil || defaults.Frequency != domain.SurveyOnce || defaults.SamplePercent != 100 {
+		t.Fatalf("defaults = %q/%d, %v; want once/100", defaults.Frequency, defaults.SamplePercent, err)
+	}
+	once := base
+	once.RepeatDays = 30
+	if err := normalizeSurvey(&once); err != nil || once.RepeatDays != 0 {
+		t.Errorf("once keeps repeat_days %d, %v", once.RepeatDays, err)
+	}
+
+	for _, bad := range []struct {
+		frequency      string
+		repeat, sample int
+	}{
+		{"weekly", 7, 100},               // unknown frequency
+		{domain.SurveyRecurring, 0, 100}, // repeating needs a period
+		{domain.SurveyUntilAnswered, 400, 100},
+		{domain.SurveyOnce, 0, 101}, // sample above 100%
+		{domain.SurveyOnce, 0, -5},
+	} {
+		survey := base
+		survey.Frequency, survey.RepeatDays, survey.SamplePercent = bad.frequency, bad.repeat, bad.sample
+		if err := normalizeSurvey(&survey); !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("%+v: got %v, want ErrInvalidInput", bad, err)
+		}
+	}
+}

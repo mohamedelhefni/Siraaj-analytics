@@ -292,6 +292,18 @@ var migrations = []Migration{
 		ALTER TABLE surveys DROP COLUMN IF EXISTS delay_seconds;
 		CREATE INDEX IF NOT EXISTS idx_surveys_project ON surveys(project_id);`,
 	},
+	{
+		Version:     14,
+		Description: "Survey display frequency and sampling",
+		Up: `ALTER TABLE surveys ADD COLUMN IF NOT EXISTS frequency VARCHAR DEFAULT 'once';
+		ALTER TABLE surveys ADD COLUMN IF NOT EXISTS repeat_days UINTEGER DEFAULT 0;
+		ALTER TABLE surveys ADD COLUMN IF NOT EXISTS sample_percent UTINYINT DEFAULT 100;`,
+		Down: `DROP INDEX IF EXISTS idx_surveys_project;
+		ALTER TABLE surveys DROP COLUMN IF EXISTS sample_percent;
+		ALTER TABLE surveys DROP COLUMN IF EXISTS repeat_days;
+		ALTER TABLE surveys DROP COLUMN IF EXISTS frequency;
+		CREATE INDEX IF NOT EXISTS idx_surveys_project ON surveys(project_id);`,
+	},
 }
 
 func initMigrationTable(db *sql.DB) error {

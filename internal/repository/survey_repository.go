@@ -10,6 +10,7 @@ import (
 type SurveyRepository interface {
 	ProjectOwnedBy(projectID, ownerID string) (bool, error)
 	Create(survey *domain.Survey) error
+	Update(survey domain.Survey, ownerID string) error
 	List(ownerID string) ([]domain.Survey, error)
 	SetActive(id uint64, ownerID string, active bool) error
 	Delete(id uint64, ownerID string) error
@@ -41,15 +42,28 @@ func (r *surveyRepository) Create(survey *domain.Survey) error {
 		return err
 	}
 	return r.db.QueryRow(`
-		INSERT INTO surveys (id, project_id, name, trigger_event, delay_seconds, questions, active, created_at)
-		VALUES (nextval('survey_id_sequence'), ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO surveys (id, project_id, name, trigger_event, delay_seconds, frequency, repeat_days, sample_percent, questions, active, created_at)
+		VALUES (nextval('survey_id_sequence'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
-	`, survey.ProjectID, survey.Name, survey.TriggerEvent, survey.DelaySeconds, string(questions), survey.Active, survey.CreatedAt).Scan(&survey.ID)
+	`, survey.ProjectID, survey.Name, survey.TriggerEvent, survey.DelaySeconds, survey.Frequency, survey.RepeatDays,
+		survey.SamplePercent, string(questions), survey.Active, survey.CreatedAt).Scan(&survey.ID)
+}
+
+func (r *surveyRepository) Update(survey domain.Survey, ownerID string) error {
+	questions, err := json.Marshal(survey.Questions)
+	if err != nil {
+		return err
+	}
+	result, err := r.db.Exec(`UPDATE surveys SET name = ?, trigger_event = ?, delay_seconds = ?, frequency = ?,
+		repeat_days = ?, sample_percent = ?, questions = ? WHERE `+ownedSurvey,
+		survey.Name, survey.TriggerEvent, survey.DelaySeconds, survey.Frequency, survey.RepeatDays,
+		survey.SamplePercent, string(questions), survey.ID, ownerID)
+	return affectedOrNotFound(result, err)
 }
 
 func (r *surveyRepository) List(ownerID string) ([]domain.Survey, error) {
 	return r.query(`
-		SELECT s.id, s.project_id, s.name, s.trigger_event, COALESCE(s.delay_seconds, 0), s.questions, s.active, s.created_at,
+		SELECT s.id, s.project_id, s.name, s.trigger_event, COALESCE(s.delay_seconds, 0), COALESCE(s.frequency, 'once'), COALESCE(s.repeat_days, 0), COALESCE(s.sample_percent, 100), s.questions, s.active, s.created_at,
 			(SELECT COUNT(*) FROM survey_responses sr WHERE sr.survey_id = s.id),
 			COALESCE(s.shown_count, 0), COALESCE(s.dismissed_count, 0)
 		FROM surveys s JOIN projects p ON p.id = s.project_id
@@ -60,7 +74,7 @@ func (r *surveyRepository) List(ownerID string) ([]domain.Survey, error) {
 
 func (r *surveyRepository) ActiveForProject(projectID string) ([]domain.Survey, error) {
 	return r.query(`
-		SELECT id, project_id, name, trigger_event, COALESCE(delay_seconds, 0), questions, active, created_at, 0, 0, 0
+		SELECT id, project_id, name, trigger_event, COALESCE(delay_seconds, 0), COALESCE(frequency, 'once'), COALESCE(repeat_days, 0), COALESCE(sample_percent, 100), questions, active, created_at, 0, 0, 0
 		FROM surveys WHERE project_id = ? AND active
 	`, projectID)
 }
@@ -76,7 +90,8 @@ func (r *surveyRepository) query(query string, args ...any) ([]domain.Survey, er
 	for rows.Next() {
 		var survey domain.Survey
 		var questions string
-		if err := rows.Scan(&survey.ID, &survey.ProjectID, &survey.Name, &survey.TriggerEvent, &survey.DelaySeconds, &questions,
+		if err := rows.Scan(&survey.ID, &survey.ProjectID, &survey.Name, &survey.TriggerEvent, &survey.DelaySeconds,
+			&survey.Frequency, &survey.RepeatDays, &survey.SamplePercent, &questions,
 			&survey.Active, &survey.CreatedAt, &survey.ResponseCount, &survey.ShownCount, &survey.DismissedCount); err != nil {
 			return nil, err
 		}
