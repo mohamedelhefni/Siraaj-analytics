@@ -13,16 +13,10 @@
 		fetchTopEvents,
 		fetchBrowsersDevicesOS
 	} from '$lib/api';
-	import { Activity, CalendarDays, Filter, RefreshCw, SlidersHorizontal, X } from 'lucide-svelte';
-	import {
-		Card,
-		CardContent,
-		CardDescription,
-		CardHeader,
-		CardTitle
-	} from '$lib/components/ui/card';
+	import { Filter, RefreshCw, X } from 'lucide-svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
-	import { Badge } from '$lib/components/ui/badge';
 	import TimelineChart from '$lib/components/TimelineChart.svelte';
 	import TopItemsList from '$lib/components/TopItemsList.svelte';
 	import CountriesPanel from '$lib/components/CountriesPanel.svelte';
@@ -585,637 +579,498 @@
 	const hasActiveFilters = $derived(Object.values(activeFilters).some((filter) => filter !== null));
 </script>
 
-<div class="dashboard-shell min-h-[calc(100vh-65px)]">
-	<main class="mx-auto max-w-[1440px] space-y-6 px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
-		<header class="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
-			<div>
-				<div
-					class="mb-3 flex items-center gap-2 text-[11px] font-semibold tracking-[0.18em] text-amber-700 uppercase"
-				>
-					<Activity class="size-4" /> Analytics observatory
-				</div>
-				<h1
-					class="display-type max-w-4xl text-4xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-5xl"
-				>
-					{activeFilters.project || 'Your audience'}, in focus.
-				</h1>
-				<p class="mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-					A quiet, current view of who arrived, what they explored, and where momentum changed.
-				</p>
-			</div>
-			{#if !loading}
-				<div
-					class="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-3 shadow-sm backdrop-blur"
-				>
-					<span class="relative flex size-3">
-						{#if onlineData.online_users > 0}<span
-								class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50 motion-reduce:animate-none"
-							></span>{/if}
-						<span
-							class="relative inline-flex size-3 rounded-full {onlineData.online_users > 0
-								? 'bg-emerald-500'
-								: 'bg-slate-300'}"
-						></span>
-					</span>
-					<div>
-						<p class="text-lg leading-none font-semibold text-slate-950 tabular-nums">
-							{onlineData.online_users?.toLocaleString() || '0'}
-						</p>
-						<p class="mt-1 text-[10px] font-semibold tracking-wider text-slate-500 uppercase">
-							Visitors now
-						</p>
-					</div>
-				</div>
-			{/if}
-		</header>
-
-		<section
-			class="rounded-2xl border border-slate-200/90 bg-white/90 p-3 shadow-[0_16px_45px_rgba(15,23,42,0.06)] backdrop-blur"
-		>
-			<div class="flex flex-wrap items-end gap-3">
-				<div
-					class="mr-1 hidden size-10 place-items-center rounded-xl bg-slate-950 text-white sm:grid"
-				>
-					<SlidersHorizontal class="size-4" />
-				</div>
-				<label class="min-w-40 flex-1 sm:max-w-48">
-					<span
-						class="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-slate-500 uppercase"
-						><CalendarDays class="size-3" /> Period</span
-					>
-					<select
-						class="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-800 transition outline-none focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
-						bind:value={dateRangePreset}
-						onchange={(e: Event) => {
-							const target = e.target as HTMLSelectElement;
-							applyDateRangePreset(target.value);
-						}}
-					>
-						{#each dateRangePresets as preset}
-							<option value={preset.value}>{preset.label}</option>
-						{/each}
-					</select>
-				</label>
-
-				{#if showCustomDateInputs}
-					<div
-						class="flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2"
-					>
-						<input
-							type="date"
-							bind:value={startDate}
-							class="bg-transparent text-sm text-slate-700 outline-none"
-							onchange={() => loadStats()}
-						/>
-						<span class="text-xs text-slate-400">to</span>
-						<input
-							type="date"
-							bind:value={endDate}
-							class="bg-transparent text-sm text-slate-700 outline-none"
-							onchange={() => loadStats()}
-						/>
-					</div>
-				{/if}
-
-				{#if projects.length > 0}
-					<label class="min-w-40 flex-1 sm:max-w-48">
-						<span
-							class="mb-1.5 block text-[10px] font-semibold tracking-wider text-slate-500 uppercase"
-							>Project</span
-						>
-						<select
-							class="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-800 transition outline-none focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
-							value={activeFilters.project || ''}
-							onchange={(e: Event) => {
-								const target = e.target as HTMLSelectElement;
-								if (target.value) {
-									addFilter('project', target.value);
-								} else {
-									removeFilter('project');
-								}
-							}}
-						>
-							<option value="">All Projects</option>
-							{#each projects as project}
-								<option value={project}>{project}</option>
-							{/each}
-						</select>
-					</label>
-				{/if}
-
-				<label class="min-w-40 flex-1 sm:max-w-48">
-					<span
-						class="mb-1.5 block text-[10px] font-semibold tracking-wider text-slate-500 uppercase"
-						>Traffic</span
-					>
-					<select
-						class="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-800 transition outline-none focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
-						value={activeFilters.botFilter || ''}
-						onchange={(e: Event) => {
-							const target = e.target as HTMLSelectElement;
-							if (target.value) {
-								addFilter('botFilter', target.value);
-							} else {
-								removeFilter('botFilter');
-							}
-						}}
-					>
-						<option value="">All Traffic</option>
-						<option value="human">👤 Human Only</option>
-						<option value="bot">🤖 Bots Only</option>
-					</select>
-				</label>
-
-				<div class="ml-auto flex items-end gap-2">
-					<label class="hidden sm:block">
-						<span
-							class="mb-1.5 block text-[10px] font-semibold tracking-wider text-slate-500 uppercase"
-							>Refresh</span
-						>
-						<select
-							class="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-800 outline-none"
-							value={refreshIntervalTime}
-							onchange={handleRefreshIntervalChange}
-							aria-label="Auto-refresh interval"
-						>
-							<option value="0">Manual</option><option value="10000">10 sec</option><option
-								value="30000">30 sec</option
-							><option value="60000">1 min</option><option value="300000">5 min</option>
-						</select>
-					</label>
-					<Button
-						onclick={() => loadStats()}
-						class="h-10 rounded-lg bg-slate-950 px-4 text-white hover:bg-slate-800"
-					>
-						<RefreshCw class="size-4" /> Refresh
-					</Button>
-				</div>
-			</div>
-			{#if !loading}
-				<div
-					class="mt-3 flex items-center justify-end border-t border-slate-100 pt-2 text-[11px] text-slate-400"
-				>
-					Updated {format(lastRefresh, 'HH:mm:ss')}
-				</div>
-			{/if}
-		</section>
-
-		{#if hasActiveFilters}
-			<div
-				class="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/70 bg-amber-50/80 px-4 py-3"
+<main class="mx-auto max-w-[1440px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+	<PageHeader
+		title={activeFilters.project || 'Overview'}
+		description="Visitors, engagement and traffic sources for the selected period."
+	>
+		{#if !loading}
+			<span
+				class="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm shadow-xs"
 			>
-				<span class="mr-1 flex items-center gap-1.5 text-xs font-semibold text-amber-900"
-					><Filter class="size-3.5" /> Filtered view</span
+				<span class="relative flex size-2">
+					{#if onlineData.online_users > 0}<span
+							class="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-60 motion-reduce:animate-none"
+						></span>{/if}
+					<span
+						class="relative inline-flex size-2 rounded-full {onlineData.online_users > 0
+							? 'bg-success'
+							: 'bg-slate-300'}"
+					></span>
+				</span>
+				<span class="font-semibold tabular-nums"
+					>{onlineData.online_users?.toLocaleString() || '0'}</span
 				>
-				{#if activeFilters.project}
-					<Badge variant="secondary" class="gap-1">
-						Project: {activeFilters.project}
-						<button onclick={() => removeFilter('project')} class="ml-1 hover:text-destructive">
-							<X class="h-3 w-3" />
-						</button>
-					</Badge>
-				{/if}
-				{#if activeFilters.source}
-					<Badge variant="secondary" class="gap-1">
-						Source: {activeFilters.source}
-						<button onclick={() => removeFilter('source')} class="ml-1 hover:text-destructive">
-							<X class="h-3 w-3" />
-						</button>
-					</Badge>
-				{/if}
-				{#if activeFilters.country}
-					<Badge variant="secondary" class="gap-1">
-						Country: {activeFilters.country}
-						<button onclick={() => removeFilter('country')} class="ml-1 hover:text-destructive">
-							<X class="h-3 w-3" />
-						</button>
-					</Badge>
-				{/if}
-				{#if activeFilters.browser}
-					<Badge variant="secondary" class="gap-1">
-						Browser: {activeFilters.browser}
-						<button onclick={() => removeFilter('browser')} class="ml-1 hover:text-destructive">
-							<X class="h-3 w-3" />
-						</button>
-					</Badge>
-				{/if}
-				{#if activeFilters.device}
-					<Badge variant="secondary" class="gap-1">
-						Device: {activeFilters.device}
-						<button onclick={() => removeFilter('device')} class="ml-1 hover:text-destructive">
-							<X class="h-3 w-3" />
-						</button>
-					</Badge>
-				{/if}
-				{#if activeFilters.os}
-					<Badge variant="secondary" class="gap-1">
-						OS: {activeFilters.os}
-						<button onclick={() => removeFilter('os')} class="ml-1 hover:text-destructive">
-							<X class="h-3 w-3" />
-						</button>
-					</Badge>
-				{/if}
-				{#if activeFilters.event}
-					<Badge variant="secondary" class="gap-1">
-						Event: {activeFilters.event}
-						<button onclick={() => removeFilter('event')} class="ml-1 hover:text-destructive">
-							<X class="h-3 w-3" />
-						</button>
-					</Badge>
-				{/if}
-				{#if activeFilters.metric}
-					<Badge variant="secondary" class="gap-1">
-						Metric: {activeFilters.metric}
-						<button onclick={() => removeFilter('metric')} class="ml-1 hover:text-destructive">
-							<X class="h-3 w-3" />
-						</button>
-					</Badge>
-				{/if}
-				{#if activeFilters.propertyKey && activeFilters.propertyValue}
-					<Badge variant="secondary" class="gap-1">
-						Property: {activeFilters.propertyKey}={activeFilters.propertyValue}
-						<button
-							onclick={() => {
-								removeFilter('propertyKey');
-								removeFilter('propertyValue');
-							}}
-							class="ml-1 hover:text-destructive"
-						>
-							<X class="h-3 w-3" />
-						</button>
-					</Badge>
-				{/if}
-				{#if activeFilters.botFilter}
-					<Badge variant="secondary" class="gap-1">
-						Traffic: {activeFilters.botFilter === 'bot' ? '🤖 Bots Only' : '👤 Human Only'}
-						<button onclick={() => removeFilter('botFilter')} class="ml-1 hover:text-destructive">
-							<X class="h-3 w-3" />
-						</button>
-					</Badge>
-				{/if}
-				{#if activeFilters.page}
-					<Badge variant="secondary" class="gap-1">
-						Page: {activeFilters.page}
-						<button onclick={() => removeFilter('page')} class="ml-1 hover:text-destructive">
-							<X class="h-3 w-3" />
-						</button>
-					</Badge>
-				{/if}
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={clearAllFilters}
-					class="ml-auto text-amber-900 hover:bg-amber-100">Clear all</Button
-				>
+				<span class="text-muted-foreground">online now</span>
+			</span>
+		{/if}
+	</PageHeader>
+
+	<div class="flex flex-wrap items-center gap-2">
+		<select
+			class="field font-medium"
+			aria-label="Period"
+			bind:value={dateRangePreset}
+			onchange={(e: Event) => applyDateRangePreset((e.target as HTMLSelectElement).value)}
+		>
+			{#each dateRangePresets as preset}
+				<option value={preset.value}>{preset.label}</option>
+			{/each}
+		</select>
+
+		{#if showCustomDateInputs}
+			<div class="field flex items-center gap-2">
+				<input
+					type="date"
+					bind:value={startDate}
+					aria-label="Start date"
+					class="bg-transparent outline-none"
+					onchange={() => loadStats()}
+				/>
+				<span class="text-muted-foreground">–</span>
+				<input
+					type="date"
+					bind:value={endDate}
+					aria-label="End date"
+					class="bg-transparent outline-none"
+					onchange={() => loadStats()}
+				/>
 			</div>
 		{/if}
 
-		{#if loading}
-			<div
-				class="flex min-h-[420px] items-center justify-center rounded-3xl border border-slate-200/80 bg-white/65 py-20 shadow-sm backdrop-blur"
+		{#if projects.length > 0}
+			<select
+				class="field"
+				aria-label="Project"
+				value={activeFilters.project || ''}
+				onchange={(e: Event) => {
+					const value = (e.target as HTMLSelectElement).value;
+					if (value) addFilter('project', value);
+					else removeFilter('project');
+				}}
 			>
-				<div class="text-center">
-					<div
-						class="inline-block size-9 animate-spin rounded-full border-[3px] border-solid border-slate-200 border-r-amber-600 motion-reduce:animate-none"
-					></div>
-					<p class="mt-4 text-sm font-medium text-slate-500">Bringing your signal into focus…</p>
-				</div>
-			</div>
-		{:else if error}
-			<Card class="border-destructive/40 bg-white/90 shadow-sm">
-				<CardHeader>
-					<CardTitle class="text-destructive">Error Loading Data</CardTitle>
-					<CardDescription>{error}</CardDescription>
-				</CardHeader>
-			</Card>
-		{:else}
-			<section
-				class="overflow-hidden rounded-3xl border border-slate-200/90 bg-white/90 shadow-[0_22px_60px_rgba(15,23,42,0.07)] backdrop-blur"
+				<option value="">All projects</option>
+				{#each projects as project}
+					<option value={project}>{project}</option>
+				{/each}
+			</select>
+		{/if}
+
+		<select
+			class="field"
+			aria-label="Traffic type"
+			value={activeFilters.botFilter || ''}
+			onchange={(e: Event) => {
+				const value = (e.target as HTMLSelectElement).value;
+				if (value) addFilter('botFilter', value);
+				else removeFilter('botFilter');
+			}}
+		>
+			<option value="">All traffic</option>
+			<option value="human">Humans only</option>
+			<option value="bot">Bots only</option>
+		</select>
+
+		<div class="ml-auto flex items-center gap-2">
+			{#if !loading}<span class="hidden text-xs text-muted-foreground sm:inline"
+					>Updated {format(lastRefresh, 'HH:mm:ss')}</span
+				>{/if}
+			<select
+				class="field hidden sm:block"
+				value={refreshIntervalTime}
+				onchange={handleRefreshIntervalChange}
+				aria-label="Auto-refresh interval"
 			>
-				<div
-					class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:px-6"
+				<option value="0">Auto-refresh off</option><option value="10000">Every 10s</option><option
+					value="30000">Every 30s</option
+				><option value="60000">Every 1m</option><option value="300000">Every 5m</option>
+			</select>
+			<Button variant="outline" onclick={() => loadStats()} aria-label="Refresh"
+				><RefreshCw class="size-4" /><span class="hidden sm:inline">Refresh</span></Button
+			>
+		</div>
+	</div>
+
+	{#if hasActiveFilters}
+		<div class="flex flex-wrap items-center gap-2">
+			<span class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+				><Filter class="size-3.5" /> Filters</span
+			>
+			{#each [['project', 'Project'], ['source', 'Source'], ['country', 'Country'], ['browser', 'Browser'], ['device', 'Device'], ['os', 'OS'], ['event', 'Event'], ['metric', 'Metric'], ['botFilter', 'Traffic'], ['page', 'Page']] as [key, label]}
+				{@const value = activeFilters[key as keyof typeof activeFilters]}
+				{#if value}
+					<span
+						class="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-card pr-1 pl-2.5 text-xs shadow-xs"
+					>
+						<span class="text-muted-foreground">{label}</span>
+						<span class="max-w-60 truncate font-medium"
+							>{key === 'botFilter' ? (value === 'bot' ? 'Bots only' : 'Humans only') : value}</span
+						>
+						<button
+							onclick={() => removeFilter(key as any)}
+							aria-label="Remove {label} filter"
+							class="grid size-5 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+							><X class="size-3" /></button
+						>
+					</span>
+				{/if}
+			{/each}
+			{#if activeFilters.propertyKey && activeFilters.propertyValue}
+				<span
+					class="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-card pr-1 pl-2.5 text-xs shadow-xs"
 				>
-					<div>
-						<p class="text-[10px] font-semibold tracking-[0.16em] text-amber-700 uppercase">
-							Performance
-						</p>
-						<h2 class="display-type mt-1 text-2xl font-semibold tracking-tight text-slate-950">
-							Audience pulse
-						</h2>
-					</div>
-					<p class="text-xs text-slate-400">Select a metric to redraw the timeline</p>
-				</div>
-				<div class="grid grid-cols-2 gap-px bg-slate-200/80 md:grid-cols-4 xl:grid-cols-8">
-					<!-- Unique Visitors -->
-					<MetricCard
-						label="Unique Visitors"
-						currentValue={stats.unique_users || 0}
-						previousValue={showComparison ? comparisonStats.unique_users || 0 : null}
-						currentPeriod={currentPeriodLabel()}
-						previousPeriod={previousPeriodLabel()}
-						isSelected={isMetricSelected('users')}
-						loading={statsLoading}
-						onclick={() => handleMetricClick('users')}
-					/>
-
-					<!-- Total Visits -->
-					<MetricCard
-						label="Total Visits"
-						currentValue={stats.total_visits || 0}
-						previousValue={showComparison ? comparisonStats.total_visits || 0 : null}
-						currentPeriod={currentPeriodLabel()}
-						previousPeriod={previousPeriodLabel()}
-						isSelected={isMetricSelected('visits')}
-						loading={statsLoading}
-						onclick={() => handleMetricClick('visits')}
-					/>
-
-					<!-- Total Pageviews -->
-					<MetricCard
-						label="Total Pageviews"
-						currentValue={stats.page_views || 0}
-						previousValue={showComparison ? comparisonStats.page_views || 0 : null}
-						currentPeriod={currentPeriodLabel()}
-						previousPeriod={previousPeriodLabel()}
-						isSelected={isMetricSelected('page_views')}
-						loading={statsLoading}
-						onclick={() => handleMetricClick('page_views')}
-					/>
-
-					<!-- Total Events -->
-					<MetricCard
-						label="Total Events"
-						currentValue={stats.total_events || 0}
-						previousValue={showComparison ? comparisonStats.total_events || 0 : null}
-						currentPeriod={currentPeriodLabel()}
-						previousPeriod={previousPeriodLabel()}
-						isSelected={isMetricSelected('events')}
-						loading={statsLoading}
-						onclick={() => handleMetricClick('events')}
-					/>
-
-					<!-- Views per Visit -->
-					<MetricCard
-						label="Views per Visit"
-						currentValue={stats.total_visits > 0 ? stats.page_views / stats.total_visits : 0}
-						previousValue={showComparison && comparisonStats.total_visits > 0
-							? comparisonStats.page_views / comparisonStats.total_visits
-							: null}
-						currentPeriod={currentPeriodLabel()}
-						previousPeriod={previousPeriodLabel()}
-						formatValue={(val: number) => (val ? val.toFixed(2) : '0.00')}
-						isSelected={isMetricSelected('views_per_visit')}
-						loading={statsLoading}
-						onclick={() => handleMetricClick('views_per_visit')}
-					/>
-
-					<!-- Bounce Rate -->
-					<MetricCard
-						label="Bounce Rate"
-						currentValue={stats.bounce_rate || 0}
-						previousValue={showComparison ? comparisonStats.bounce_rate || 0 : null}
-						currentPeriod={currentPeriodLabel()}
-						previousPeriod={previousPeriodLabel()}
-						formatValue={(val: number) => (val ? val.toFixed(0) + '%' : '0%')}
-						isNegativeBetter={true}
-						isSelected={isMetricSelected('bounce_rate')}
-						loading={statsLoading}
-						onclick={() => handleMetricClick('bounce_rate')}
-					/>
-
-					<!-- Visit Duration -->
-					<MetricCard
-						label="Visit Duration"
-						currentValue={stats.avg_session_duration || 0}
-						previousValue={showComparison ? comparisonStats.avg_session_duration || 0 : null}
-						currentPeriod={currentPeriodLabel()}
-						previousPeriod={previousPeriodLabel()}
-						formatValue={(val: number) => {
-							if (!val) return '0s';
-							if (val < 60) return Math.floor(val) + 's';
-							if (val < 3600) {
-								const minutes = Math.floor(val / 60);
-								const seconds = Math.floor(val % 60);
-								return `${minutes}m ${seconds}s`;
-							}
-							const hours = Math.floor(val / 3600);
-							const minutes = Math.floor((val % 3600) / 60);
-							return `${hours}h ${minutes}m`;
-						}}
-						isSelected={isMetricSelected('visit_duration')}
-						loading={statsLoading}
-						onclick={() => handleMetricClick('visit_duration')}
-					/>
-
-					<!-- Bot Percentage -->
-					<MetricCard
-						label="🤖 Bot Traffic"
-						currentValue={stats.bot_percentage || 0}
-						previousValue={showComparison ? comparisonStats.bot_percentage || 0 : null}
-						currentPeriod={currentPeriodLabel()}
-						previousPeriod={previousPeriodLabel()}
-						formatValue={(val: number) => (val ? val.toFixed(0) + '%' : '0%')}
-						isNegativeBetter={true}
-						isSelected={activeFilters.botFilter === 'bot'}
-						loading={statsLoading}
+					<span class="text-muted-foreground">Property</span>
+					<span class="max-w-60 truncate font-medium"
+						>{activeFilters.propertyKey}={activeFilters.propertyValue}</span
+					>
+					<button
 						onclick={() => {
-							if (activeFilters.botFilter === 'bot') {
-								removeFilter('botFilter');
-							} else {
-								addFilter('botFilter', 'bot');
-							}
+							removeFilter('propertyKey');
+							removeFilter('propertyValue');
 						}}
-					/>
-				</div>
+						aria-label="Remove property filter"
+						class="grid size-5 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+						><X class="size-3" /></button
+					>
+				</span>
+			{/if}
+			<button
+				onclick={clearAllFilters}
+				class="text-xs font-medium text-muted-foreground hover:text-foreground">Clear all</button
+			>
+		</div>
+	{/if}
 
-				<div class="px-2 pt-5 pb-4 sm:px-5">
-					{#if timelineLoading}
-						<div class="flex h-[300px] items-center justify-center text-muted-foreground">
+	{#if loading}
+		<div class="panel flex min-h-[420px] items-center justify-center">
+			<div class="flex flex-col items-center gap-3 text-sm text-muted-foreground">
+				<div
+					class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent motion-reduce:animate-none"
+				></div>
+				 Loading analytics…
+			</div>
+		</div>
+	{:else if error}
+		<div
+			class="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+			role="alert"
+		>
+			<p class="font-medium">Couldn't load analytics</p>
+			<p class="mt-0.5">{error}</p>
+		</div>
+	{:else}
+		<section class="panel overflow-hidden">
+			<div
+				class="grid grid-cols-2 gap-px border-b border-border bg-border md:grid-cols-4 xl:grid-cols-8"
+			>
+				<!-- Unique Visitors -->
+				<MetricCard
+					label="Unique Visitors"
+					currentValue={stats.unique_users || 0}
+					previousValue={showComparison ? comparisonStats.unique_users || 0 : null}
+					currentPeriod={currentPeriodLabel()}
+					previousPeriod={previousPeriodLabel()}
+					isSelected={isMetricSelected('users')}
+					loading={statsLoading}
+					onclick={() => handleMetricClick('users')}
+				/>
+
+				<!-- Total Visits -->
+				<MetricCard
+					label="Total Visits"
+					currentValue={stats.total_visits || 0}
+					previousValue={showComparison ? comparisonStats.total_visits || 0 : null}
+					currentPeriod={currentPeriodLabel()}
+					previousPeriod={previousPeriodLabel()}
+					isSelected={isMetricSelected('visits')}
+					loading={statsLoading}
+					onclick={() => handleMetricClick('visits')}
+				/>
+
+				<!-- Total Pageviews -->
+				<MetricCard
+					label="Total Pageviews"
+					currentValue={stats.page_views || 0}
+					previousValue={showComparison ? comparisonStats.page_views || 0 : null}
+					currentPeriod={currentPeriodLabel()}
+					previousPeriod={previousPeriodLabel()}
+					isSelected={isMetricSelected('page_views')}
+					loading={statsLoading}
+					onclick={() => handleMetricClick('page_views')}
+				/>
+
+				<!-- Total Events -->
+				<MetricCard
+					label="Total Events"
+					currentValue={stats.total_events || 0}
+					previousValue={showComparison ? comparisonStats.total_events || 0 : null}
+					currentPeriod={currentPeriodLabel()}
+					previousPeriod={previousPeriodLabel()}
+					isSelected={isMetricSelected('events')}
+					loading={statsLoading}
+					onclick={() => handleMetricClick('events')}
+				/>
+
+				<!-- Views per Visit -->
+				<MetricCard
+					label="Views per Visit"
+					currentValue={stats.total_visits > 0 ? stats.page_views / stats.total_visits : 0}
+					previousValue={showComparison && comparisonStats.total_visits > 0
+						? comparisonStats.page_views / comparisonStats.total_visits
+						: null}
+					currentPeriod={currentPeriodLabel()}
+					previousPeriod={previousPeriodLabel()}
+					formatValue={(val: number) => (val ? val.toFixed(2) : '0.00')}
+					isSelected={isMetricSelected('views_per_visit')}
+					loading={statsLoading}
+					onclick={() => handleMetricClick('views_per_visit')}
+				/>
+
+				<!-- Bounce Rate -->
+				<MetricCard
+					label="Bounce Rate"
+					currentValue={stats.bounce_rate || 0}
+					previousValue={showComparison ? comparisonStats.bounce_rate || 0 : null}
+					currentPeriod={currentPeriodLabel()}
+					previousPeriod={previousPeriodLabel()}
+					formatValue={(val: number) => (val ? val.toFixed(0) + '%' : '0%')}
+					isNegativeBetter={true}
+					isSelected={isMetricSelected('bounce_rate')}
+					loading={statsLoading}
+					onclick={() => handleMetricClick('bounce_rate')}
+				/>
+
+				<!-- Visit Duration -->
+				<MetricCard
+					label="Visit Duration"
+					currentValue={stats.avg_session_duration || 0}
+					previousValue={showComparison ? comparisonStats.avg_session_duration || 0 : null}
+					currentPeriod={currentPeriodLabel()}
+					previousPeriod={previousPeriodLabel()}
+					formatValue={(val: number) => {
+						if (!val) return '0s';
+						if (val < 60) return Math.floor(val) + 's';
+						if (val < 3600) {
+							const minutes = Math.floor(val / 60);
+							const seconds = Math.floor(val % 60);
+							return `${minutes}m ${seconds}s`;
+						}
+						const hours = Math.floor(val / 3600);
+						const minutes = Math.floor((val % 3600) / 60);
+						return `${hours}h ${minutes}m`;
+					}}
+					isSelected={isMetricSelected('visit_duration')}
+					loading={statsLoading}
+					onclick={() => handleMetricClick('visit_duration')}
+				/>
+
+				<!-- Bot Percentage -->
+				<MetricCard
+					label="Bot Traffic"
+					currentValue={stats.bot_percentage || 0}
+					previousValue={showComparison ? comparisonStats.bot_percentage || 0 : null}
+					currentPeriod={currentPeriodLabel()}
+					previousPeriod={previousPeriodLabel()}
+					formatValue={(val: number) => (val ? val.toFixed(0) + '%' : '0%')}
+					isNegativeBetter={true}
+					isSelected={activeFilters.botFilter === 'bot'}
+					loading={statsLoading}
+					onclick={() => {
+						if (activeFilters.botFilter === 'bot') {
+							removeFilter('botFilter');
+						} else {
+							addFilter('botFilter', 'bot');
+						}
+					}}
+				/>
+			</div>
+
+			<div class="px-2 pt-4 pb-6 sm:px-5">
+				{#if timelineLoading}
+					<div class="flex h-[300px] items-center justify-center text-muted-foreground">
+						<div class="flex flex-col items-center gap-2">
+							<div
+								class="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent motion-reduce:animate-none"
+							></div>
+							<p class="text-sm">Loading...</p>
+						</div>
+					</div>
+				{:else}
+					<TimelineChart
+						data={timeline.timeline || []}
+						comparisonData={comparisonTimeline.timeline || []}
+						format={timeline.timeline_format || 'day'}
+						metric={activeFilters.metric || 'users'}
+						bind:showComparison
+					/>
+				{/if}
+			</div>
+		</section>
+
+		<div class="grid gap-4 lg:grid-cols-2">
+			<div class="space-y-4">
+				<Card>
+					<CardHeader class="pb-3">
+						<div class="flex items-center justify-between">
+							<CardTitle>Pages</CardTitle>
+							<div class="flex gap-0.5 rounded-md bg-muted p-0.5">
+								<button
+									class="rounded px-3 py-1 text-xs font-medium transition-colors {pagesTab === 'all'
+										? 'bg-card text-foreground shadow-xs'
+										: 'text-muted-foreground hover:text-foreground'}"
+									onclick={() => (pagesTab = 'all')}
+								>
+									All
+								</button>
+								<button
+									class="rounded px-3 py-1 text-xs font-medium transition-colors {pagesTab ===
+									'entry'
+										? 'bg-card text-foreground shadow-xs'
+										: 'text-muted-foreground hover:text-foreground'}"
+									onclick={() => (pagesTab = 'entry')}
+								>
+									Entry
+								</button>
+								<button
+									class="rounded px-3 py-1 text-xs font-medium transition-colors {pagesTab ===
+									'exit'
+										? 'bg-card text-foreground shadow-xs'
+										: 'text-muted-foreground hover:text-foreground'}"
+									onclick={() => (pagesTab = 'exit')}
+								>
+									Exit
+								</button>
+							</div>
+						</div>
+					</CardHeader>
+					<CardContent>
+						{#if pagesLoading || entryExitLoading}
+							<div class="flex min-h-[200px] items-center justify-center text-muted-foreground">
+								<div class="flex flex-col items-center gap-2">
+									<div
+										class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent motion-reduce:animate-none"
+									></div>
+									<p class="text-xs">Loading...</p>
+								</div>
+							</div>
+						{:else if pagesTab === 'all'}
+							<TopItemsList
+								items={topPages.top_pages || []}
+								labelKey="url"
+								maxItems={10}
+								valueKey="count"
+								showMoreTitle="All Pages"
+								onclick={(item: any) => addFilter('page', item.url)}
+							/>
+						{:else if pagesTab === 'entry'}
+							<TopItemsList
+								items={entryExitPages.entry_pages || []}
+								labelKey="url"
+								maxItems={10}
+								valueKey="count"
+								showMoreTitle="All Entry Pages"
+								onclick={(item: any) => addFilter('page', item.url)}
+							/>
+						{:else if pagesTab === 'exit'}
+							<TopItemsList
+								items={entryExitPages.exit_pages || []}
+								labelKey="url"
+								maxItems={10}
+								valueKey="count"
+								showMoreTitle="All Exit Pages"
+								onclick={(item: any) => addFilter('page', item.url)}
+							/>
+						{/if}
+					</CardContent>
+				</Card>
+			</div>
+			<Card>
+				<CardHeader class="pb-3">
+					<CardTitle>Locations</CardTitle>
+				</CardHeader>
+				<CardContent>
+					<CountriesPanel
+						countries={topCountries || []}
+						onclick={(item: any) => addFilter('country', item.name)}
+						loading={countriesLoading}
+					/>
+				</CardContent>
+			</Card>
+		</div>
+
+		<div class="grid gap-4 lg:grid-cols-3">
+			<Card>
+				<CardHeader class="pb-3">
+					<CardTitle>Top Events</CardTitle>
+				</CardHeader>
+				<CardContent>
+					{#if eventsLoading}
+						<div class="flex min-h-[150px] items-center justify-center text-muted-foreground">
 							<div class="flex flex-col items-center gap-2">
 								<div
-									class="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent motion-reduce:animate-none"
+									class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent motion-reduce:animate-none"
 								></div>
-								<p class="text-sm">Loading...</p>
+								<p class="text-xs">Loading...</p>
 							</div>
 						</div>
 					{:else}
-						<TimelineChart
-							data={timeline.timeline || []}
-							comparisonData={comparisonTimeline.timeline || []}
-							format={timeline.timeline_format || 'day'}
-							metric={activeFilters.metric || 'users'}
-							bind:showComparison
+						<TopItemsList
+							items={topEvents || []}
+							labelKey="name"
+							valueKey="count"
+							maxItems={8}
+							type="event"
+							showMoreTitle="All Events"
+							onclick={(item: any) => addFilter('event', item.name)}
 						/>
 					{/if}
-				</div>
-			</section>
+				</CardContent>
+			</Card>
 
-			<div class="grid gap-5 lg:grid-cols-2">
-				<div class="space-y-4">
-					<Card class="border-slate-200/90 bg-white/90 shadow-sm">
-						<CardHeader class="pb-3">
-							<div class="flex items-center justify-between">
-								<CardTitle class="text-base">Pages</CardTitle>
-								<div class="flex gap-1 rounded-lg bg-muted p-1">
-									<button
-										class="rounded px-3 py-1 text-xs font-medium transition-colors {pagesTab ===
-										'all'
-											? 'bg-background shadow-sm'
-											: 'hover:bg-background/50'}"
-										onclick={() => (pagesTab = 'all')}
-									>
-										All
-									</button>
-									<button
-										class="rounded px-3 py-1 text-xs font-medium transition-colors {pagesTab ===
-										'entry'
-											? 'bg-background shadow-sm'
-											: 'hover:bg-background/50'}"
-										onclick={() => (pagesTab = 'entry')}
-									>
-										Entry
-									</button>
-									<button
-										class="rounded px-3 py-1 text-xs font-medium transition-colors {pagesTab ===
-										'exit'
-											? 'bg-background shadow-sm'
-											: 'hover:bg-background/50'}"
-										onclick={() => (pagesTab = 'exit')}
-									>
-										Exit
-									</button>
-								</div>
+			<Card>
+				<CardHeader class="pb-3">
+					<CardTitle>Top Sources</CardTitle>
+				</CardHeader>
+				<CardContent>
+					{#if sourcesLoading}
+						<div class="flex min-h-[150px] items-center justify-center text-muted-foreground">
+							<div class="flex flex-col items-center gap-2">
+								<div
+									class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent motion-reduce:animate-none"
+								></div>
+								<p class="text-xs">Loading...</p>
 							</div>
-						</CardHeader>
-						<CardContent>
-							{#if pagesLoading || entryExitLoading}
-								<div class="flex min-h-[200px] items-center justify-center text-muted-foreground">
-									<div class="flex flex-col items-center gap-2">
-										<div
-											class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent motion-reduce:animate-none"
-										></div>
-										<p class="text-xs">Loading...</p>
-									</div>
-								</div>
-							{:else if pagesTab === 'all'}
-								<TopItemsList
-									items={topPages.top_pages || []}
-									labelKey="url"
-									maxItems={10}
-									valueKey="count"
-									showMoreTitle="All Pages"
-									onclick={(item: any) => addFilter('page', item.url)}
-								/>
-							{:else if pagesTab === 'entry'}
-								<TopItemsList
-									items={entryExitPages.entry_pages || []}
-									labelKey="url"
-									maxItems={10}
-									valueKey="count"
-									showMoreTitle="All Entry Pages"
-									onclick={(item: any) => addFilter('page', item.url)}
-								/>
-							{:else if pagesTab === 'exit'}
-								<TopItemsList
-									items={entryExitPages.exit_pages || []}
-									labelKey="url"
-									maxItems={10}
-									valueKey="count"
-									showMoreTitle="All Exit Pages"
-									onclick={(item: any) => addFilter('page', item.url)}
-								/>
-							{/if}
-						</CardContent>
-					</Card>
-				</div>
-				<Card class="border-slate-200/90 bg-white/90 shadow-sm">
-					<CardHeader class="pb-3">
-						<CardTitle class="text-base">Locations</CardTitle>
-					</CardHeader>
-					<CardContent>
-						<CountriesPanel
-							countries={topCountries || []}
-							onclick={(item: any) => addFilter('country', item.name)}
-							loading={countriesLoading}
+						</div>
+					{:else}
+						<TopItemsList
+							items={topSources || []}
+							labelKey="name"
+							valueKey="count"
+							maxItems={8}
+							type="source"
+							showMoreTitle="All Sources"
+							onclick={(item: any) => addFilter('source', item.name)}
 						/>
-					</CardContent>
-				</Card>
-			</div>
+					{/if}
+				</CardContent>
+			</Card>
 
-			<div class="grid gap-5 lg:grid-cols-3">
-				<Card class="border-slate-200/90 bg-white/90 shadow-sm">
-					<CardHeader class="pb-3">
-						<CardTitle class="text-base">Top Events</CardTitle>
-					</CardHeader>
-					<CardContent>
-						{#if eventsLoading}
-							<div class="flex min-h-[150px] items-center justify-center text-muted-foreground">
-								<div class="flex flex-col items-center gap-2">
-									<div
-										class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent motion-reduce:animate-none"
-									></div>
-									<p class="text-xs">Loading...</p>
-								</div>
-							</div>
-						{:else}
-							<TopItemsList
-								items={topEvents || []}
-								labelKey="name"
-								valueKey="count"
-								maxItems={8}
-								type="event"
-								showMoreTitle="All Events"
-								onclick={(item: any) => addFilter('event', item.name)}
-							/>
-						{/if}
-					</CardContent>
-				</Card>
-
-				<Card class="border-slate-200/90 bg-white/90 shadow-sm">
-					<CardHeader class="pb-3">
-						<CardTitle class="text-base">Top Sources</CardTitle>
-					</CardHeader>
-					<CardContent>
-						{#if sourcesLoading}
-							<div class="flex min-h-[150px] items-center justify-center text-muted-foreground">
-								<div class="flex flex-col items-center gap-2">
-									<div
-										class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent motion-reduce:animate-none"
-									></div>
-									<p class="text-xs">Loading...</p>
-								</div>
-							</div>
-						{:else}
-							<TopItemsList
-								items={topSources || []}
-								labelKey="name"
-								valueKey="count"
-								maxItems={8}
-								type="source"
-								showMoreTitle="All Sources"
-								onclick={(item: any) => addFilter('source', item.name)}
-							/>
-						{/if}
-					</CardContent>
-				</Card>
-
-				<Card class="border-slate-200/90 bg-white/90 shadow-sm">
-					<CardHeader class="pb-3">
-						<CardTitle class="text-base">Devices</CardTitle>
-					</CardHeader>
-					<CardContent>
-						<BrowserPanel
-							browsers={browsersDevicesOS.browsers || []}
-							devices={browsersDevicesOS.devices || []}
-							operatingSystems={browsersDevicesOS.os || []}
-							onBrowserClick={(item: any) => addFilter('browser', item.name)}
-							onDeviceClick={(item: any) => addFilter('device', item.name)}
-							onOsClick={(item: any) => addFilter('os', item.name)}
-							loading={devicesLoading}
-						/>
-					</CardContent>
-				</Card>
-			</div>
-		{/if}
-	</main>
-</div>
+			<Card>
+				<CardHeader class="pb-3">
+					<CardTitle>Devices</CardTitle>
+				</CardHeader>
+				<CardContent>
+					<BrowserPanel
+						browsers={browsersDevicesOS.browsers || []}
+						devices={browsersDevicesOS.devices || []}
+						operatingSystems={browsersDevicesOS.os || []}
+						onBrowserClick={(item: any) => addFilter('browser', item.name)}
+						onDeviceClick={(item: any) => addFilter('device', item.name)}
+						onOsClick={(item: any) => addFilter('os', item.name)}
+						loading={devicesLoading}
+					/>
+				</CardContent>
+			</Card>
+		</div>
+	{/if}
+</main>

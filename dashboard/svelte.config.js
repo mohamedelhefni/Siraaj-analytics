@@ -16,7 +16,16 @@ const config = {
 			strict: true
 		}),
 		paths: {
-			base: '/dashboard'
+			base: '/dashboard',
+			// Absolute asset URLs so the landing page also works when Go serves it at /.
+			relative: false
+		},
+		prerender: {
+			// The landing page links to / and /api, which Go serves outside the SvelteKit base.
+			handleHttpError: ({ path, message }) => {
+				if (!path.startsWith('/dashboard')) return;
+				throw new Error(message);
+			}
 		}
 	}
 };

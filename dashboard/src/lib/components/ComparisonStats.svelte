@@ -42,7 +42,7 @@
 
 	// Get trend color based on change and metric type
 	function getTrendColor(change, isNegativeBetter = false) {
-		if (change === 0) return 'text-gray-600';
+		if (change === 0) return 'text-slate-600';
 
 		if (isNegativeBetter) {
 			// For metrics like bounce rate, lower is better
@@ -139,8 +139,8 @@
 	<Card class="mb-4">
 		<div class="p-4">
 			<div class="mb-3 flex items-center justify-between">
-				<h3 class="text-sm font-semibold text-gray-700">Period Comparison</h3>
-				<span class="text-xs text-gray-500">Current vs Previous Period</span>
+				<h3 class="text-sm font-semibold text-slate-700">Period Comparison</h3>
+				<span class="text-xs text-slate-500">Current vs Previous Period</span>
 			</div>
 			<div class="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
 				{#each metrics as metric}
@@ -168,7 +168,7 @@
 								<span class="font-medium">{Math.abs(metric.change).toFixed(1)}%</span>
 							</div>
 						{:else}
-							<div class="flex items-center gap-1 text-xs text-gray-600">
+							<div class="flex items-center gap-1 text-xs text-slate-600">
 								<Minus class="h-3 w-3" />
 								<span class="font-medium">No change</span>
 							</div>

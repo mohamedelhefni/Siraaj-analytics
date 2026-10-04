@@ -174,7 +174,7 @@
 			)
 			.selectAll('text')
 			.style('font-size', '12px')
-			.style('fill', '#6b7280');
+			.style('fill', '#64748b');
 
 		// Update or create Y axis
 		const yAxis = d3.axisLeft(y).ticks(5);
@@ -204,7 +204,7 @@
 			.call(yAxis)
 			.selectAll('text')
 			.style('font-size', '12px')
-			.style('fill', '#6b7280');
+			.style('fill', '#64748b');
 
 		// Update or create grid lines
 		const gridGroup = svg.selectAll('.grid').data([null]);
@@ -235,13 +235,13 @@
 			gradient
 				.append('stop')
 				.attr('offset', '0%')
-				.attr('stop-color', 'rgb(99, 102, 241)')
+				.attr('stop-color', 'rgb(51, 65, 85)')
 				.attr('stop-opacity', 0.1);
 
 			gradient
 				.append('stop')
 				.attr('offset', '100%')
-				.attr('stop-color', 'rgb(99, 102, 241)')
+				.attr('stop-color', 'rgb(51, 65, 85)')
 				.attr('stop-opacity', 0);
 		}
 
@@ -276,7 +276,7 @@
 			.append('path')
 			.attr('class', 'main-line')
 			.attr('fill', 'none')
-			.attr('stroke', 'rgb(99, 102, 241)')
+			.attr('stroke', 'rgb(51, 65, 85)')
 			.attr('stroke-width', 2)
 			.attr('d', line);
 
@@ -326,7 +326,7 @@
 				.append('path')
 				.attr('class', 'comparison-line')
 				.attr('fill', 'none')
-				.attr('stroke', 'rgb(156, 163, 175)')
+				.attr('stroke', 'rgb(148, 163, 184)')
 				.attr('stroke-width', 2)
 				.attr('stroke-dasharray', '5,5')
 				.attr('opacity', 0.6)
@@ -364,7 +364,7 @@
 				.attr('cx', (d) => x(d.date))
 				.attr('cy', (d) => y(d.count))
 				.attr('r', 0)
-				.attr('fill', 'rgb(156, 163, 175)')
+				.attr('fill', 'rgb(148, 163, 184)')
 				.attr('opacity', 0.6)
 				.style('cursor', 'pointer')
 				.on('mouseover', function (event, d) {
@@ -416,7 +416,7 @@
 			.attr('cx', (d) => x(d.date))
 			.attr('cy', (d) => y(d.count))
 			.attr('r', 0)
-			.attr('fill', 'rgb(99, 102, 241)')
+			.attr('fill', 'rgb(51, 65, 85)')
 			.style('cursor', 'pointer')
 			.on('mouseover', function (event, d) {
 				d3.select(this).transition().duration(200).attr('r', 6);
@@ -479,7 +479,7 @@
 			hoverLine = svg
 				.append('line')
 				.attr('class', 'hover-line')
-				.attr('stroke', '#9ca3af')
+				.attr('stroke', '#94a3b8')
 				.attr('stroke-width', 1)
 				.attr('stroke-dasharray', '3,3')
 				.attr('opacity', 0);
@@ -491,7 +491,7 @@
 				.append('circle')
 				.attr('class', 'hover-circle-current')
 				.attr('r', 5)
-				.attr('fill', 'rgb(99, 102, 241)')
+				.attr('fill', 'rgb(51, 65, 85)')
 				.attr('stroke', 'white')
 				.attr('stroke-width', 2)
 				.attr('opacity', 0);
@@ -503,7 +503,7 @@
 				.append('circle')
 				.attr('class', 'hover-circle-prev')
 				.attr('r', 5)
-				.attr('fill', 'rgb(156, 163, 175)')
+				.attr('fill', 'rgb(148, 163, 184)')
 				.attr('stroke', 'white')
 				.attr('stroke-width', 2)
 				.attr('opacity', 0);
@@ -603,7 +603,7 @@
 						<div style="font-weight: 600; font-size: 13px; color: #e2e8f0; margin-bottom: 8px;">${metricLabels[metric] || 'Metric'}</div>
 						${changePercent !== null ? `<div style="color: ${changePercent >= 0 ? '#10b981' : '#ef4444'}; font-size: 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 4px;"><span>${changeIcon}</span><span>${Math.abs(changePercent).toFixed(1)}%</span></div>` : ''}
 						<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-							<div style="width: 8px; height: 8px; border-radius: 50%; background: rgb(99, 102, 241);"></div>
+							<div style="width: 8px; height: 8px; border-radius: 50%; background: rgb(51, 65, 85);"></div>
 							<div style="color: #cbd5e1; font-size: 12px;">${formatTooltipDate(d.date.toISOString())}</div>
 							<div style="color: white; font-weight: 600; font-size: 14px; margin-left: auto;">${formatCount(d.count, metric)}</div>
 						</div>
@@ -611,7 +611,7 @@
 							compD
 								? `
 							<div style="display: flex; align-items: center; gap: 8px; opacity: 0.7;">
-								<div style="width: 8px; height: 8px; border-radius: 50%; background: rgb(156, 163, 175);"></div>
+								<div style="width: 8px; height: 8px; border-radius: 50%; background: rgb(148, 163, 184);"></div>
 								<div style="color: #cbd5e1; font-size: 12px;">${formatTooltipDate(compD.date.toISOString())}</div>
 								<div style="color: white; font-weight: 600; font-size: 14px; margin-left: auto;">${formatCount(compD.count, metric)}</div>
 							</div>
@@ -686,11 +686,11 @@
 		<div class="absolute -bottom-5 right-0 z-10 flex items-center gap-4">
 			<div class="flex items-center gap-3 text-sm">
 				<div class="flex items-center gap-2">
-					<div class="h-0.5 w-6 bg-indigo-500"></div>
+					<div class="h-0.5 w-6 bg-slate-700"></div>
 					<span class="text-muted-foreground">Current Period</span>
 				</div>
 				<div class="flex items-center gap-2">
-					<div class="h-0.5 w-6 border-t-2 border-dashed border-gray-400"></div>
+					<div class="h-0.5 w-6 border-t-2 border-dashed border-slate-400"></div>
 					<span class="text-muted-foreground">Previous Period</span>
 				</div>
 			</div>

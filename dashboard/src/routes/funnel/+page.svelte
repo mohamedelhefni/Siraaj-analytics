@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { onMount } from 'svelte';
 	import { format, subDays } from 'date-fns';
 	import { fetchFunnelAnalysis, fetchStats, fetchProjects } from '$lib/api';
@@ -237,29 +238,20 @@
 	}
 </script>
 
-<div class="container mx-auto space-y-6 p-6">
-	<!-- Header -->
-	<div class="flex items-center justify-between">
-		<div>
-			<h1 class="text-3xl font-bold">🎯 Funnel Analysis</h1>
-			<p class="text-muted-foreground mt-1">
-				Track user journey through multi-step conversion funnels
-			</p>
-		</div>
-
+<div class="mx-auto max-w-[1440px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+	<PageHeader
+		title="Funnels"
+		description="Track how visitors move through multi-step conversion paths."
+	>
 		{#if funnelResult}
-			<div class="flex items-center gap-2">
-				<Button variant="outline" size="sm" onclick={exportResults}>
-					<Download class="mr-1 h-4 w-4" />
-					Export
-				</Button>
-				<Button variant="outline" size="sm" onclick={shareResults}>
-					<Share2 class="mr-1 h-4 w-4" />
-					Share
-				</Button>
-			</div>
+			<Button variant="outline" size="sm" onclick={exportResults}
+				><Download class="size-4" /> Export</Button
+			>
+			<Button variant="outline" size="sm" onclick={shareResults}
+				><Share2 class="size-4" /> Share</Button
+			>
 		{/if}
-	</div>
+	</PageHeader>
 
 	<div class="grid gap-6 lg:grid-cols-3">
 		<!-- Left Panel: Configuration -->
@@ -278,12 +270,12 @@
 							<input
 								type="date"
 								bind:value={startDate}
-								class="border-input bg-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1"
+								class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 							/>
 							<input
 								type="date"
 								bind:value={endDate}
-								class="border-input bg-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1"
+								class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 							/>
 						</div>
 					</div>
@@ -294,10 +286,10 @@
 
 						{#if projects.length > 0}
 							<div>
-								<label class="text-muted-foreground mb-1 block text-xs">Project</label>
+								<label class="mb-1 block text-xs text-muted-foreground">Project</label>
 								<select
 									bind:value={selectedProject}
-									class="border-input bg-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1"
+									class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 								>
 									<option value="">All Projects</option>
 									{#each projects as project}
@@ -308,10 +300,10 @@
 						{/if}
 
 						<div>
-							<label class="text-muted-foreground mb-1 block text-xs">Traffic Type</label>
+							<label class="mb-1 block text-xs text-muted-foreground">Traffic Type</label>
 							<select
 								bind:value={botFilter}
-								class="border-input bg-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1"
+								class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 							>
 								<option value="">All Traffic</option>
 								<option value="human">👤 Human Only</option>
@@ -334,7 +326,7 @@
 					</Button>
 
 					{#if error}
-						<div class="bg-destructive/10 text-destructive rounded-lg p-3 text-sm">
+						<div class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
 							{error}
 						</div>
 					{/if}

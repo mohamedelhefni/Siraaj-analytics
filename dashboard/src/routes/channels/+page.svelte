@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { format, subDays, startOfMonth, startOfYear, subMonths } from 'date-fns';
 	import { fetchChannels, fetchProjects, fetchOnlineUsers } from '$lib/api';
@@ -284,21 +285,18 @@
 	});
 </script>
 
-<div class="container mx-auto space-y-4 p-6">
-	<!-- Header -->
-	<div class="flex flex-wrap items-center justify-between gap-4">
-		<div class="flex items-center gap-4">
-			<h1 class="text-2xl font-bold">📊 Traffic Channels</h1>
-		</div>
-	</div>
-
+<div class="mx-auto max-w-[1440px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+	<PageHeader
+		title="Channels"
+		description="Where your visitors come from, grouped by acquisition channel and source."
+	/>
 	<!-- Controls Row -->
 	<div class="flex flex-wrap items-center gap-3">
 		<!-- Date Range Selector -->
 		<div class="flex items-center gap-2">
 			<span class="text-sm font-medium">Period:</span>
 			<select
-				class="border-input bg-background focus-visible:ring-ring flex h-9 rounded-md border px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1"
+				class="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 				bind:value={dateRangePreset}
 				onchange={(e: Event) => {
 					const target = e.target as HTMLSelectElement;
@@ -335,7 +333,7 @@
 			<div class="flex items-center gap-2">
 				<span class="text-sm font-medium">Project:</span>
 				<select
-					class="border-input bg-background focus-visible:ring-ring flex h-9 rounded-md border px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1"
+					class="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 					value={activeFilters.project || ''}
 					onchange={(e: Event) => {
 						const target = e.target as HTMLSelectElement;
@@ -358,7 +356,7 @@
 		<div class="flex items-center gap-2">
 			<span class="text-sm font-medium">Traffic:</span>
 			<select
-				class="border-input bg-background focus-visible:ring-ring flex h-9 rounded-md border px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1"
+				class="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 				value={activeFilters.botFilter || ''}
 				onchange={(e: Event) => {
 					const target = e.target as HTMLSelectElement;
@@ -378,7 +376,7 @@
 		<!-- Chart Type Toggle -->
 		<div class="ml-auto flex items-center gap-2">
 			<span class="text-sm font-medium">Chart:</span>
-			<div class="bg-muted flex gap-1 rounded-lg p-1">
+			<div class="flex gap-1 rounded-lg bg-muted p-1">
 				<button
 					class="rounded px-3 py-1 text-xs font-medium transition-colors {chartType === 'pie'
 						? 'bg-background shadow-sm'
@@ -412,7 +410,7 @@
 			</Button>
 
 			{#if !loading}
-				<span class="text-muted-foreground whitespace-nowrap text-xs">
+				<span class="text-xs whitespace-nowrap text-muted-foreground">
 					Updated {format(lastRefresh, 'HH:mm:ss')}
 				</span>
 			{/if}
@@ -422,11 +420,11 @@
 	<!-- Active Filters -->
 	{#if Object.values(activeFilters).some((v) => v !== null)}
 		<div class="flex flex-wrap items-center gap-2">
-			<span class="text-muted-foreground text-sm">Active Filters:</span>
+			<span class="text-sm text-muted-foreground">Active Filters:</span>
 			{#if activeFilters.project}
 				<Badge variant="secondary" class="gap-1">
 					Project: {activeFilters.project}
-					<button onclick={() => removeFilter('project')} class="hover:text-destructive ml-1">
+					<button onclick={() => removeFilter('project')} class="ml-1 hover:text-destructive">
 						<X class="h-3 w-3" />
 					</button>
 				</Badge>
@@ -434,7 +432,7 @@
 			{#if activeFilters.botFilter}
 				<Badge variant="secondary" class="gap-1">
 					Traffic: {activeFilters.botFilter === 'bot' ? '🤖 Bots Only' : '👤 Human Only'}
-					<button onclick={() => removeFilter('botFilter')} class="hover:text-destructive ml-1">
+					<button onclick={() => removeFilter('botFilter')} class="ml-1 hover:text-destructive">
 						<X class="h-3 w-3" />
 					</button>
 				</Badge>
@@ -449,7 +447,7 @@
 				<div
 					class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent motion-reduce:animate-[spin_1.5s_linear_infinite]"
 				></div>
-				<p class="text-muted-foreground mt-4">Loading channel data...</p>
+				<p class="mt-4 text-muted-foreground">Loading channel data...</p>
 			</div>
 		</div>
 	{:else if error}
@@ -501,7 +499,7 @@
 			</CardHeader>
 			<CardContent>
 				{#if channels.length === 0}
-					<div class="text-muted-foreground flex h-[400px] items-center justify-center">
+					<div class="flex h-[400px] items-center justify-center text-muted-foreground">
 						<p>No channel data available for the selected period.</p>
 					</div>
 				{:else}

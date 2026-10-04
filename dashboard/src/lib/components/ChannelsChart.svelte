@@ -604,7 +604,7 @@
 
 	:global(.tooltip-percentage) {
 		font-weight: 700;
-		color: #3b82f6;
+		color: #334155;
 		font-size: 12px;
 	}
 

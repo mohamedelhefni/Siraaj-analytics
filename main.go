@@ -29,9 +29,6 @@ import (
 //go:embed all:ui/dashboard
 var dashboardFiles embed.FS
 
-//go:embed ui/landing/index.html
-var landingPage string
-
 type cleanURLFS struct {
 	fs.FS
 }
@@ -249,14 +246,18 @@ func main() {
 		mux.Handle("/dashboard/", dashboardHandler)
 	}
 
-	// Serve landing page at root
+	// Serve the prerendered landing page (dashboard/src/routes/welcome) at root
+	landingPage, err := dashboardFiles.ReadFile("ui/dashboard/welcome.html")
+	if err != nil {
+		log.Fatalf("Landing page missing from dashboard build: %v", err)
+	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if _, err := w.Write([]byte(landingPage)); err != nil {
+		if _, err := w.Write(landingPage); err != nil {
 			log.Printf("Error serving landing page: %v", err)
 		}
 	})

@@ -38,66 +38,51 @@
 	}
 
 	function getTrendColor(changeVal: number) {
-		if (changeVal === 0) return isSelected ? 'text-slate-400' : 'text-slate-500';
+		if (changeVal === 0) return 'text-muted-foreground';
 		const isImprovement = isNegativeBetter ? changeVal < 0 : changeVal > 0;
-		if (isImprovement) return isSelected ? 'text-emerald-300' : 'text-emerald-700';
-		return isSelected ? 'text-rose-300' : 'text-rose-700';
+		return isImprovement ? 'text-success' : 'text-destructive';
 	}
 </script>
 
 <button
-	class="group relative flex min-h-48 flex-col overflow-hidden p-4 text-left transition-all focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none focus-visible:ring-inset sm:p-5 {isSelected
-		? 'bg-slate-950 text-white shadow-inner'
-		: 'bg-white text-slate-950 hover:z-10 hover:bg-amber-50'}"
+	class="relative flex min-h-28 flex-col bg-card px-4 py-4 text-left transition-colors focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset sm:px-5 {isSelected
+		? 'bg-muted/60 after:absolute after:inset-x-0 after:top-0 after:h-0.5 after:bg-primary'
+		: 'hover:bg-muted/40'}"
 	{onclick}
 	disabled={loading}
+	aria-pressed={isSelected}
 >
-	{#if isSelected}<span
-			class="absolute top-3 right-3 size-1.5 rounded-full bg-amber-300 shadow-[0_0_8px_rgba(252,211,77,0.8)]"
-		></span>{/if}
-	<div
-		class="mb-3 min-h-6 w-full text-[10px] leading-4 font-semibold tracking-[0.14em] uppercase {isSelected
-			? 'text-amber-200'
-			: 'text-slate-500'}"
+	<span
+		class="truncate text-xs font-medium {isSelected ? 'text-foreground' : 'text-muted-foreground'}"
+		>{label}</span
 	>
-		{label}
-	</div>
 
 	{#if loading}
-		<div class="h-9 w-24 animate-pulse rounded bg-slate-200"></div>
-		<div class="mt-3 h-3 w-16 animate-pulse rounded bg-slate-100"></div>
+		<div class="mt-2 h-7 w-20 animate-pulse rounded bg-muted"></div>
+		<div class="mt-2 h-3 w-14 animate-pulse rounded bg-muted"></div>
 	{:else}
-		<div class="w-full">
-			<div class="text-3xl font-semibold tracking-[-0.04em] tabular-nums">
-				{formatValue(currentValue)}
-			</div>
-			{#if currentPeriod}
-				<div
-					class="mt-1 text-[10px] leading-4 whitespace-nowrap {isSelected
-						? 'text-slate-400'
-						: 'text-slate-500'}"
-				>
-					{currentPeriod}
-				</div>
-			{/if}
-		</div>
-
+		<span class="mt-1.5 text-2xl font-semibold tracking-tight text-foreground tabular-nums"
+			>{formatValue(currentValue)}</span
+		>
 		{#if previousValue !== null}
-			<div class="mt-auto flex w-full items-end justify-between gap-2 border-t pt-3 text-[11px]">
-				<div class="min-w-0 {isSelected ? 'text-slate-400' : 'text-slate-500'}">
-					<span class="block font-medium">Prev. {formatValue(previousValue)}</span>
-					{#if previousPeriod}<span class="mt-0.5 block text-[9px] whitespace-nowrap"
-							>{previousPeriod}</span
-						>{/if}
-				</div>
+			<span
+				class="mt-auto flex items-center gap-1.5 pt-2 text-xs"
+				title={previousPeriod ? `${previousPeriod}: ${formatValue(previousValue)}` : undefined}
+			>
 				{#if change() !== 0}
 					{@const TrendIcon = getTrendIcon(change())}
-					<div class="flex shrink-0 items-center gap-1 font-semibold {getTrendColor(change())}">
-						<TrendIcon class="size-3" />
-						{Math.abs(change()).toFixed(0)}%
-					</div>
+					<span
+						class="inline-flex items-center gap-0.5 font-medium tabular-nums {getTrendColor(
+							change()
+						)}"><TrendIcon class="size-3" />{Math.abs(change()).toFixed(0)}%</span
+					>
 				{/if}
-			</div>
+				<span class="truncate text-muted-foreground tabular-nums"
+					>vs {formatValue(previousValue)}</span
+				>
+			</span>
+		{:else if currentPeriod}
+			<span class="mt-auto truncate pt-2 text-xs text-muted-foreground">{currentPeriod}</span>
 		{/if}
 	{/if}
 </button>

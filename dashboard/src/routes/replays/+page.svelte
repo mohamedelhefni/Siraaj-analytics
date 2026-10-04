@@ -1,5 +1,8 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { onDestroy, onMount, tick } from 'svelte';
+	import { base } from '$app/paths';
+	import { page } from '$app/stores';
 	import { format, formatDistanceToNow } from 'date-fns';
 	import {
 		ChevronLeft,
@@ -10,7 +13,8 @@
 		MousePointerClick,
 		Search,
 		Timer,
-		Trash2
+		Trash2,
+		UserRound
 	} from 'lucide-svelte';
 	import { deleteReplay, fetchReplayEvents, fetchReplays } from '$lib/api';
 
@@ -19,6 +23,7 @@
 		recording_id: string;
 		session_id: string;
 		url: string;
+		user_id: string;
 		started_at: string;
 		ended_at: string;
 		chunks: number;
@@ -53,7 +58,12 @@
 			if (projectFilter && replay.project_id !== projectFilter) continue;
 			if (needle && !replay.url.toLowerCase().includes(needle)) continue;
 			const key = `${replay.project_id}/${replay.session_id}`;
-			const visit = grouped.get(key) ?? { session_id: replay.session_id, project_id: replay.project_id, started_at: replay.started_at, pages: [] };
+			const visit = grouped.get(key) ?? {
+				session_id: replay.session_id,
+				project_id: replay.project_id,
+				started_at: replay.started_at,
+				pages: []
+			};
 			visit.pages.unshift(replay);
 			visit.started_at = replay.started_at;
 			grouped.set(key, visit);
@@ -71,9 +81,17 @@
 		} finally {
 			loading = false;
 		}
-		// Open the newest recording once the player stage has rendered.
+		// Open the visit linked from a user's journey (first page), else the newest recording.
 		await tick();
-		if (replays.length) void play(replays[0], false);
+		// A user's journey links one recording; play it straight away.
+		const params = $page.url.searchParams;
+		const linked = replays.find(
+			(replay) =>
+				replay.project_id === params.get('project') &&
+				replay.recording_id === params.get('recording')
+		);
+		if (linked) void play(linked);
+		else if (replays.length) void play(replays[0], false);
 	});
 
 	onDestroy(() => player?.$destroy());
@@ -106,12 +124,19 @@
 				import('rrweb-player/dist/style.css')
 			]);
 			if (selected !== replay || !stage) return;
-			if (events.length < 2) throw new Error('This recording has not captured enough to replay yet.');
+			if (events.length < 2)
+				throw new Error('This recording has not captured enough to replay yet.');
 			const meta = events.find((event: any) => event.type === 4)?.data;
 			viewport = { width: meta?.width ?? 0, height: meta?.height ?? 0 };
 			player = new Player({
 				target: stage,
-				props: { events, ...playerSize(stageWidth), autoPlay, skipInactive: true, speedOption: [1, 2, 4, 8] }
+				props: {
+					events,
+					...playerSize(stageWidth),
+					autoPlay,
+					skipInactive: true,
+					speedOption: [1, 2, 4, 8]
+				}
 			}) as unknown as Player;
 		} catch (caughtError: any) {
 			error = caughtError?.message || 'Failed to load replay';
@@ -143,11 +168,15 @@
 	function duration(total: number) {
 		if (total < 60) return `${Math.round(total)}s`;
 		const minutes = Math.floor(total / 60);
-		return minutes < 60 ? `${minutes}m ${Math.round(total % 60)}s` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+		return minutes < 60
+			? `${minutes}m ${Math.round(total % 60)}s`
+			: `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 	}
 
 	function visitDuration(visit: Visit) {
-		return duration(seconds(visit.pages[0].started_at, visit.pages[visit.pages.length - 1].ended_at));
+		return duration(
+			seconds(visit.pages[0].started_at, visit.pages[visit.pages.length - 1].ended_at)
+		);
 	}
 
 	function path(url: string) {
@@ -172,43 +201,28 @@
 	<title>Replays · Siraaj</title>
 </svelte:head>
 
-<main class="mx-auto max-w-[1500px] px-6 py-8">
-	<header class="mb-6 flex flex-wrap items-end justify-between gap-4">
-		<div>
-			<div
-				class="mb-2 flex items-center gap-2 text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase"
-			>
-				<MonitorPlay class="size-4" /> Replays
-			</div>
-			<h1 class="text-3xl font-semibold tracking-tight">Session replays</h1>
-			<p class="mt-1 text-sm text-muted-foreground">
-				Every page load is one recording, grouped by visit. Inputs are always masked.
-			</p>
-		</div>
+<main class="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8">
+	<PageHeader
+		class="mb-6"
+		title="Session replays"
+		description="Every page load is one recording, grouped by visit. Inputs are always masked."
+	>
 		{#if replays.length}
-			<div class="flex flex-wrap gap-2">
-				<label class="relative">
-					<span class="sr-only">Search pages</span>
-					<Search class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-					<input
-						bind:value={query}
-						placeholder="Filter by page"
-						class="h-10 w-56 rounded-lg border border-input bg-background pr-3 pl-9 text-sm outline-none focus:border-foreground focus:ring-4 focus:ring-foreground/10"
-					/>
-				</label>
-				{#if projects.length > 1}
-					<select
-						bind:value={projectFilter}
-						aria-label="Project"
-						class="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-foreground focus:ring-4 focus:ring-foreground/10"
-					>
-						<option value="">All projects</option>
-						{#each projects as project}<option value={project}>{project}</option>{/each}
-					</select>
-				{/if}
-			</div>
+			<label class="relative">
+				<span class="sr-only">Search pages</span>
+				<Search
+					class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+				/>
+				<input bind:value={query} placeholder="Filter by page" class="field w-56 pl-9" />
+			</label>
+			{#if projects.length > 1}
+				<select bind:value={projectFilter} aria-label="Project" class="field">
+					<option value="">All projects</option>
+					{#each projects as project}<option value={project}>{project}</option>{/each}
+				</select>
+			{/if}
 		{/if}
-	</header>
+	</PageHeader>
 
 	{#if error}
 		<div
@@ -220,7 +234,9 @@
 	{/if}
 
 	{#if loading}
-		<div class="flex h-80 items-center justify-center rounded-2xl border border-border text-muted-foreground">
+		<div
+			class="flex h-80 items-center justify-center rounded-2xl border border-border text-muted-foreground"
+		>
 			<LoaderCircle class="mr-2 size-4 animate-spin" /> Loading replays
 		</div>
 	{:else if replays.length === 0}
@@ -228,10 +244,12 @@
 			<MonitorPlay class="mb-4 size-8 text-muted-foreground" />
 			<h2 class="text-lg font-semibold">No recordings yet</h2>
 			<p class="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
-				Load the replay script next to the SDK. Recordings appear here a few seconds after a visitor lands. Add
+				Load the replay script next to the SDK. Recordings appear here a few seconds after a visitor
+				lands. Add
 				<code>siraaj-block</code> to hide an element or <code>siraaj-mask</code> to mask its text.
 			</p>
-			<pre class="mt-5 max-w-2xl overflow-x-auto rounded-xl bg-foreground p-4 text-xs leading-5 text-background"><code
+			<pre
+				class="mt-5 max-w-2xl overflow-x-auto rounded-xl bg-foreground p-4 text-xs leading-5 text-background"><code
 					>&lt;script src="analytics.min.js"&gt;&lt;/script&gt;
 &lt;script src="replay.min.js"&gt;&lt;/script&gt;
 &lt;script&gt;
@@ -249,15 +267,30 @@
 				<div class="max-h-[calc(100vh-14rem)] space-y-3 overflow-y-auto pr-1">
 					{#each visits as visit (visit.project_id + visit.session_id)}
 						<article class="overflow-hidden rounded-xl border border-border bg-card">
-							<div class="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-3 py-2 text-xs">
-								<span class="truncate font-medium" title={format(new Date(visit.started_at), 'PPpp')}>
+							<div
+								class="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-3 py-2 text-xs"
+							>
+								<span
+									class="truncate font-medium"
+									title={format(new Date(visit.started_at), 'PPpp')}
+								>
 									{formatDistanceToNow(new Date(visit.started_at), { addSuffix: true })}
 								</span>
 								<span class="shrink-0 text-muted-foreground">
-									{visit.pages.length} {visit.pages.length === 1 ? 'page' : 'pages'} · {visitDuration(visit)}
+									{visit.pages.length}
+									{visit.pages.length === 1 ? 'page' : 'pages'} · {visitDuration(visit)}
 									{#if projects.length > 1}· {visit.project_id}{/if}
 								</span>
 							</div>
+							{#if visit.pages[0].user_id}
+								<a
+									href="{base}/users?id={encodeURIComponent(visit.pages[0].user_id)}"
+									class="flex items-center gap-1.5 border-b border-border px-3 py-1.5 font-mono text-xs text-muted-foreground hover:text-foreground hover:underline"
+								>
+									<UserRound class="size-3.5 shrink-0" />
+									<span class="truncate">{visit.pages[0].user_id}</span>
+								</a>
+							{/if}
 							<ol>
 								{#each visit.pages as replay (replay.recording_id)}
 									<li>
@@ -265,12 +298,15 @@
 											type="button"
 											onclick={() => play(replay)}
 											aria-current={selected === replay}
-											class="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition hover:bg-accent {selected === replay
+											class="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition hover:bg-accent {selected ===
+											replay
 												? 'bg-accent shadow-[inset_3px_0_0_var(--color-foreground)]'
 												: ''}"
 										>
 											<MonitorPlay class="size-4 shrink-0 text-muted-foreground" />
-											<span class="min-w-0 flex-1 truncate font-medium" title={replay.url}>{path(replay.url)}</span>
+											<span class="min-w-0 flex-1 truncate font-medium" title={replay.url}
+												>{path(replay.url)}</span
+											>
 											<span class="shrink-0 text-xs text-muted-foreground tabular-nums">
 												{duration(seconds(replay.started_at, replay.ended_at))}
 											</span>
@@ -280,7 +316,9 @@
 							</ol>
 						</article>
 					{:else}
-						<p class="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+						<p
+							class="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground"
+						>
 							No recordings match these filters.
 						</p>
 					{/each}
@@ -290,7 +328,9 @@
 			<section class="min-w-0">
 				<div class="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
 					{#if selected}
-						<div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+						<div
+							class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3"
+						>
 							<div class="min-w-0">
 								<a
 									href={selected.url}
@@ -344,7 +384,9 @@
 					<div bind:clientWidth={stageWidth} class="replay-stage relative bg-muted/30">
 						<div bind:this={stage} class:invisible={playerLoading}></div>
 						{#if !selected || playerLoading}
-							<div class="absolute inset-0 flex min-h-80 flex-col items-center justify-center text-muted-foreground">
+							<div
+								class="absolute inset-0 flex min-h-80 flex-col items-center justify-center text-muted-foreground"
+							>
 								{#if playerLoading}
 									<LoaderCircle class="mb-2 size-6 animate-spin" /> Loading recording
 								{:else}
@@ -356,13 +398,37 @@
 					</div>
 
 					{#if selected}
-						<dl class="grid grid-cols-2 gap-px border-t border-border bg-border text-sm sm:grid-cols-4">
+						<dl
+							class="grid grid-cols-2 gap-px border-t border-border bg-border text-sm {selected.user_id
+								? 'sm:grid-cols-5'
+								: 'sm:grid-cols-4'}"
+						>
+							{#if selected.user_id}
+								<div class="col-span-2 min-w-0 bg-card px-4 py-3 sm:col-span-1">
+									<dt class="flex items-center gap-1.5 text-xs text-muted-foreground">
+										<UserRound class="size-3.5" /> User
+									</dt>
+									<dd class="mt-0.5 truncate font-mono font-semibold">
+										<a
+											href="{base}/users?id={encodeURIComponent(selected.user_id)}"
+											title={selected.user_id}
+											class="hover:underline">{selected.user_id}</a
+										>
+									</dd>
+								</div>
+							{/if}
 							<div class="bg-card px-4 py-3">
-								<dt class="flex items-center gap-1.5 text-xs text-muted-foreground"><Timer class="size-3.5" /> Duration</dt>
-								<dd class="mt-0.5 font-semibold tabular-nums">{duration(seconds(selected.started_at, selected.ended_at))}</dd>
+								<dt class="flex items-center gap-1.5 text-xs text-muted-foreground">
+									<Timer class="size-3.5" /> Duration
+								</dt>
+								<dd class="mt-0.5 font-semibold tabular-nums">
+									{duration(seconds(selected.started_at, selected.ended_at))}
+								</dd>
 							</div>
 							<div class="bg-card px-4 py-3">
-								<dt class="flex items-center gap-1.5 text-xs text-muted-foreground"><MousePointerClick class="size-3.5" /> Clicks</dt>
+								<dt class="flex items-center gap-1.5 text-xs text-muted-foreground">
+									<MousePointerClick class="size-3.5" /> Clicks
+								</dt>
 								<dd class="mt-0.5 font-semibold tabular-nums">{selected.clicks}</dd>
 							</div>
 							<div class="bg-card px-4 py-3">
@@ -373,7 +439,9 @@
 							</div>
 							<div class="bg-card px-4 py-3">
 								<dt class="text-xs text-muted-foreground">Stored</dt>
-								<dd class="mt-0.5 font-semibold tabular-nums">{(selected.bytes / 1024).toFixed(0)} KB · {selected.project_id}</dd>
+								<dd class="mt-0.5 font-semibold tabular-nums">
+									{(selected.bytes / 1024).toFixed(0)} KB · {selected.project_id}
+								</dd>
 							</div>
 						</dl>
 					{/if}

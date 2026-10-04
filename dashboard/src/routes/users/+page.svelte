@@ -1,16 +1,50 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { onMount } from 'svelte';
+	import { base } from '$app/paths';
 	import { page } from '$app/stores';
 	import { format, formatDistanceToNow, subDays } from 'date-fns';
-	import { Eye, LoaderCircle, MessageSquareText, MousePointerClick, Search, Users, Zap } from 'lucide-svelte';
-	import { fetchEvents } from '$lib/api';
+	import {
+		Eye,
+		Monitor,
+		Smartphone,
+		Tablet,
+		LoaderCircle,
+		MessageSquareText,
+		MonitorPlay,
+		MousePointerClick,
+		Search,
+		Users,
+		Zap
+	} from 'lucide-svelte';
+	import { fetchEvents, fetchReplays } from '$lib/api';
+	import { getBrowserIcon, getCountryFlag, getOSIcon } from '$lib/utils/icons';
 
 	type Ev = {
-		id: number; timestamp: string; event_name: string; user_id: string; session_id: string;
-		url: string; country: string; browser: string; os: string; device: string; channel: string; referrer: string;
+		id: number;
+		timestamp: string;
+		event_name: string;
+		user_id: string;
+		session_id: string;
+		url: string;
+		country: string;
+		browser: string;
+		os: string;
+		device: string;
+		channel: string;
+		referrer: string;
 	};
 	type Answer = { survey_id: number; survey_name: string; answers: string[]; created_at: string };
-	type Visitor = { id: string; events: number; first: string; last: string; country: string; device: string; browser: string };
+	type Visitor = {
+		id: string;
+		events: number;
+		first: string;
+		last: string;
+		country: string;
+		device: string;
+		browser: string;
+		os: string;
+	};
 	type Item = { at: string; session?: string; ev?: Ev; survey?: Answer };
 
 	const fmt = (d: Date) => format(d, 'yyyy-MM-dd');
@@ -24,10 +58,23 @@
 	let events: Ev[] = $state([]);
 	let surveys: Answer[] = $state([]);
 	let error = $state<string | null>(null);
+	type Recording = {
+		project_id: string;
+		recording_id: string;
+		session_id: string;
+		url: string;
+		started_at: string;
+	};
+	let recordings: Recording[] = $state([]);
+	const replaySessions = $derived(new Set(recordings.map((replay) => replay.session_id)));
 
 	// ponytail: no users endpoint yet, so the list groups the newest 1000 events of the last 30 days.
 	// Add a GROUP BY user_id endpoint when traffic outgrows that window.
 	onMount(async () => {
+		// Replays are optional context; the journey still works without them.
+		fetchReplays()
+			.then((list: Recording[]) => (recordings = list))
+			.catch(() => {});
 		try {
 			const data = await fetchEvents(fmt(subDays(today(), 30)), fmt(today()), 1000);
 			const map = new Map<string, Visitor>();
@@ -35,7 +82,16 @@
 				if (!e.user_id) continue;
 				const v = map.get(e.user_id);
 				if (!v) {
-					map.set(e.user_id, { id: e.user_id, events: 1, first: e.timestamp, last: e.timestamp, country: e.country, device: e.device, browser: e.browser });
+					map.set(e.user_id, {
+						id: e.user_id,
+						events: 1,
+						first: e.timestamp,
+						last: e.timestamp,
+						country: e.country,
+						device: e.device,
+						browser: e.browser,
+						os: e.os
+					});
 				} else {
 					v.events++;
 					if (e.timestamp < v.first) v.first = e.timestamp;
@@ -93,14 +149,42 @@
 			first: events[events.length - 1].timestamp,
 			last: last.timestamp,
 			sessions: new Set(events.map((e) => e.session_id)).size,
+			replays: new Set(events.map((e) => e.session_id).filter((id) => replaySessions.has(id))).size,
 			pages: events.filter((e) => e.event_name === 'page_view').length,
-			where: [last.country, last.device, last.browser].filter(Boolean).join(' · '),
+			last_event: last,
 			channel: events[events.length - 1].channel
 		};
 	});
 
+	// A page view's recording is the same session and URL loaded closest in time.
+	function recordingFor(ev: Ev) {
+		if (ev.event_name !== 'page_view' || !replaySessions.has(ev.session_id)) return null;
+		const at = Date.parse(ev.timestamp);
+		let best: Recording | null = null;
+		for (const replay of recordings) {
+			if (replay.session_id !== ev.session_id || replay.url !== ev.url) continue;
+			const gap = Math.abs(Date.parse(replay.started_at) - at);
+			if (!best || gap < Math.abs(Date.parse(best.started_at) - at)) best = replay;
+		}
+		return best;
+	}
+
+	// Icon helpers return either an image URL or an emoji fallback.
+	const isImage = (icon: string) => /^(\/|http|data:)/.test(icon);
+	function deviceIcon(device: string) {
+		const name = (device || '').toLowerCase();
+		if (name.includes('tablet')) return Tablet;
+		if (name.includes('mobile') || name.includes('phone')) return Smartphone;
+		return Monitor;
+	}
+
 	function path(url: string) {
-		try { const u = new URL(url); return u.pathname + u.search; } catch { return url || '—'; }
+		try {
+			const u = new URL(url);
+			return u.pathname + u.search;
+		} catch {
+			return url || '—';
+		}
 	}
 	function label(e: Ev) {
 		if (e.event_name === 'page_view') return `Viewed ${path(e.url)}`;
@@ -116,24 +200,50 @@
 	}
 </script>
 
+{#snippet environment(where: { country: string; device: string; browser: string; os: string })}
+	{@const DeviceIcon = deviceIcon(where.device)}
+	<span class="flex flex-wrap items-center gap-x-3 gap-y-1">
+		{#if where.country}
+			<span class="flex items-center gap-1" title="Country">
+				<span aria-hidden="true">{getCountryFlag(where.country)}</span>{where.country}
+			</span>
+		{/if}
+		{#if where.device}
+			<span class="flex items-center gap-1 capitalize" title="Device">
+				<DeviceIcon class="size-3.5" />{where.device}
+			</span>
+		{/if}
+		{#each [['Browser', where.browser, getBrowserIcon(where.browser)], ['OS', where.os, getOSIcon(where.os)]] as [kind, name, icon] (kind)}
+			{#if name}
+				<span class="flex items-center gap-1" title={kind}>
+					{#if isImage(icon)}
+						<img src={icon} alt="" class="size-3.5" />
+					{:else}
+						<span aria-hidden="true">{icon}</span>
+					{/if}
+					{name}
+				</span>
+			{/if}
+		{/each}
+	</span>
+{/snippet}
+
 <svelte:head>
 	<title>Users · Siraaj</title>
 </svelte:head>
 
-<main class="mx-auto max-w-7xl px-6 py-10">
-	<header class="mb-10">
-		<div class="mb-3 flex items-center gap-2 text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-			<Users class="size-4" /> Users
-		</div>
-		<h1 class="max-w-3xl text-4xl font-semibold tracking-tight sm:text-5xl">Follow one visitor, start to finish.</h1>
-		<p class="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-			Every visitor gets a random id. Call <code>identify("your-user-id")</code> to tie it to your own user, and
-			their pageviews, events and survey answers land on one timeline.
-		</p>
-	</header>
+<main class="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8">
+	<PageHeader
+		class="mb-6"
+		title="Users"
+		description="Follow one visitor from first visit onward. Call identify(&quot;your-user-id&quot;) in the SDK to tie visits to your own users."
+	/>
 
 	{#if error}
-		<div class="mb-6 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive" role="alert">
+		<div
+			class="mb-6 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+			role="alert"
+		>
 			{error}
 		</div>
 	{/if}
@@ -155,7 +265,9 @@
 			</div>
 			<div class="max-h-[70vh] space-y-2 overflow-y-auto">
 				{#if listLoading}
-					<div class="flex h-40 items-center justify-center rounded-xl border border-border text-muted-foreground">
+					<div
+						class="flex h-40 items-center justify-center rounded-xl border border-border text-muted-foreground"
+					>
 						<LoaderCircle class="mr-2 size-4 animate-spin" /> Loading users
 					</div>
 				{:else if shown.length === 0}
@@ -163,7 +275,9 @@
 						<Users class="mx-auto mb-3 size-6 text-muted-foreground" />
 						<p class="font-medium">{query ? 'No matching users' : 'No users yet'}</p>
 						{#if query}
-							<button class="mt-2 text-sm underline" onclick={() => select(query.trim())}>Look up “{query.trim()}” anyway</button>
+							<button class="mt-2 text-sm underline" onclick={() => select(query.trim())}
+								>Look up “{query.trim()}” anyway</button
+							>
 						{/if}
 					</div>
 				{:else}
@@ -171,16 +285,23 @@
 						<button
 							type="button"
 							onclick={() => select(v.id)}
-							class="flex w-full items-center gap-3 rounded-xl border border-border p-3 text-left transition hover:border-foreground/30 {selectedId === v.id ? 'bg-muted/60 ring-2 ring-foreground/10' : 'bg-card'}"
+							class="flex w-full items-center gap-3 rounded-xl border border-border p-3 text-left transition hover:border-foreground/30 {selectedId ===
+							v.id
+								? 'bg-muted/60 ring-2 ring-foreground/10'
+								: 'bg-card'}"
 						>
 							<span
 								class="flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
 								style="background:hsl({hue(v.id)} 55% 45%)"
-								aria-hidden="true">{v.id.slice(0, 2).toUpperCase()}</span>
+								aria-hidden="true">{v.id.slice(0, 2).toUpperCase()}</span
+							>
 							<span class="min-w-0 flex-1">
 								<span class="block truncate font-mono text-sm font-medium">{short(v.id)}</span>
 								<span class="block truncate text-xs text-muted-foreground">
-									{[v.country, v.device].filter(Boolean).join(' · ') || '—'} · {formatDistanceToNow(new Date(v.last), { addSuffix: true })}
+									Last seen {formatDistanceToNow(new Date(v.last), { addSuffix: true })}
+								</span>
+								<span class="mt-1 block text-xs text-muted-foreground">
+									{@render environment(v)}
 								</span>
 							</span>
 							<span class="text-right">
@@ -195,34 +316,43 @@
 
 		<section class="min-w-0">
 			{#if !selectedId}
-				<div class="flex h-96 flex-col items-center justify-center rounded-2xl border border-border bg-card text-center text-muted-foreground">
+				<div
+					class="flex h-96 flex-col items-center justify-center rounded-2xl border border-border bg-card text-center text-muted-foreground"
+				>
 					<Users class="mb-3 size-7" />
 					<p class="font-medium text-foreground">Choose a visitor</p>
 					<p class="text-sm">Their full journey shows up here.</p>
 				</div>
 			{:else if detailLoading}
-				<div class="flex h-96 items-center justify-center rounded-2xl border border-border bg-card text-muted-foreground">
+				<div
+					class="flex h-96 items-center justify-center rounded-2xl border border-border bg-card text-muted-foreground"
+				>
 					<LoaderCircle class="mr-2 size-5 animate-spin" /> Loading journey
 				</div>
 			{:else}
-				<h2 class="mb-4 truncate font-mono text-lg font-semibold" title={selectedId}>{selectedId}</h2>
+				<h2 class="mb-4 truncate font-mono text-lg font-semibold" title={selectedId}>
+					{selectedId}
+				</h2>
 				{#if summary}
 					<div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-						{#each [
-							['First seen', formatDistanceToNow(new Date(summary.first), { addSuffix: true })],
-							['Last seen', formatDistanceToNow(new Date(summary.last), { addSuffix: true })],
-							['Sessions', summary.sessions],
-							['Page views', summary.pages]
-						] as [name, value]}
+						{#each [['First seen', formatDistanceToNow( new Date(summary.first), { addSuffix: true } )], ['Last seen', formatDistanceToNow( new Date(summary.last), { addSuffix: true } )], ['Sessions', summary.sessions], ['Page views', summary.pages]] as [name, value]}
 							<div class="rounded-xl border border-border bg-card p-4">
 								<p class="text-[11px] text-muted-foreground uppercase">{name}</p>
 								<p class="mt-1 text-xl font-semibold tabular-nums">{value}</p>
 							</div>
 						{/each}
 					</div>
-					<p class="mb-6 text-sm text-muted-foreground">
-						{summary.where}{summary.channel ? ` · arrived via ${summary.channel}` : ''}
-					</p>
+					<div
+						class="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground"
+					>
+						{@render environment(summary.last_event)}
+						{#if summary.channel}<span>· arrived via {summary.channel}</span>{/if}
+						{#if summary.replays}
+							<span
+								>· {summary.replays} recorded {summary.replays === 1 ? 'session' : 'sessions'}</span
+							>
+						{/if}
+					</div>
 				{/if}
 
 				{#if days.length === 0}
@@ -232,12 +362,18 @@
 				{/if}
 
 				{#each days as d (d.day)}
-					<h3 class="mt-6 mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase first:mt-0">{d.day}</h3>
+					<h3
+						class="mt-6 mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase first:mt-0"
+					>
+						{d.day}
+					</h3>
 					<ol class="relative ml-4 space-y-1 border-l border-border pl-6">
 						{#each d.items as item, i (item.ev?.id ?? 's' + item.at + i)}
 							{@const newSession = item.ev && item.session !== d.items[i + 1]?.session}
 							<li class="relative">
-								<span class="absolute top-2.5 -left-[2.1rem] flex size-6 items-center justify-center rounded-full border border-border bg-background">
+								<span
+									class="absolute top-2.5 -left-[2.1rem] flex size-6 items-center justify-center rounded-full border border-border bg-background"
+								>
 									{#if item.survey}
 										<MessageSquareText class="size-3 text-violet-500" />
 									{:else if item.ev?.event_name === 'page_view'}
@@ -245,10 +381,12 @@
 									{:else if item.ev?.event_name === 'click'}
 										<MousePointerClick class="size-3 text-sky-500" />
 									{:else}
-										<Zap class="size-3 text-amber-500" />
+										<Zap class="size-3 text-slate-500" />
 									{/if}
 								</span>
-								<div class="flex items-baseline justify-between gap-4 rounded-lg px-3 py-2 hover:bg-muted/40">
+								<div
+									class="flex items-baseline justify-between gap-4 rounded-lg px-3 py-2 hover:bg-muted/40"
+								>
 									<div class="min-w-0">
 										{#if item.survey}
 											<p class="text-sm font-medium">Answered “{item.survey.survey_name}”</p>
@@ -264,10 +402,31 @@
 											{/if}
 										{/if}
 									</div>
-									<time class="shrink-0 text-xs text-muted-foreground tabular-nums" datetime={item.at}>{format(new Date(item.at), 'HH:mm:ss')}</time>
+									<span class="flex shrink-0 items-center gap-3">
+										{#if item.ev}
+											{@const recording = recordingFor(item.ev)}
+											{#if recording}
+												<a
+													href="{base}/replays?project={encodeURIComponent(
+														recording.project_id
+													)}&recording={encodeURIComponent(recording.recording_id)}"
+													class="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-medium transition hover:bg-accent"
+												>
+													<MonitorPlay class="size-3.5" /> Play recording
+												</a>
+											{/if}
+										{/if}
+										<time class="text-xs text-muted-foreground tabular-nums" datetime={item.at}
+											>{format(new Date(item.at), 'HH:mm:ss')}</time
+										>
+									</span>
 								</div>
 								{#if newSession}
-									<p class="my-2 ml-3 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">— session started</p>
+									<p
+										class="my-2 ml-3 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase"
+									>
+										— session started
+									</p>
 								{/if}
 							</li>
 						{/each}

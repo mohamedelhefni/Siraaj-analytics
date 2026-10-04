@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { onMount } from 'svelte';
 	import { format, subDays } from 'date-fns';
 	import {
@@ -53,7 +54,9 @@
 		return Math.max(...stats.timeline.map((point) => point.count), 1);
 	});
 
-	onMount(() => { void loadPage(); });
+	onMount(() => {
+		void loadPage();
+	});
 
 	async function loadPage() {
 		try {
@@ -141,29 +144,21 @@
 	<title>Short links · Siraaj</title>
 </svelte:head>
 
-<main class="mx-auto max-w-7xl px-6 py-10">
-	<header class="mb-10 grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
-		<div>
-			<div
-				class="mb-3 flex items-center gap-2 text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase"
-			>
-				<Link2 class="size-4" /> Short-link analytics
-			</div>
-			<h1 class="max-w-3xl text-4xl font-semibold tracking-tight sm:text-5xl">
-				A shorter route to the signal.
-			</h1>
-			<p class="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-				Create a memorable Siraaj link, then see when it is opened and which countries and sites
-				sent the traffic.
-			</p>
-		</div>
-		<div class="rounded-full border border-border bg-muted/45 px-4 py-2 text-sm">
-			<span class="font-semibold"
+<main class="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8">
+	<PageHeader
+		class="mb-6"
+		title="Short links"
+		description="Create short links and see when they're opened, from which countries and referring sites."
+	>
+		<span
+			class="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-sm shadow-xs"
+		>
+			<span class="font-semibold tabular-nums"
 				>{links.reduce((total, link) => total + link.click_count, 0).toLocaleString()}</span
 			>
-			<span class="ml-1 text-muted-foreground">all-time clicks</span>
-		</div>
-	</header>
+			<span class="text-muted-foreground">all-time clicks</span>
+		</span>
+	</PageHeader>
 
 	{#if error}
 		<div
@@ -222,8 +217,14 @@
 				</label>
 				<label>
 					<span class="mb-2 block text-sm font-medium">Project</span>
-					<select bind:value={projectID} required class="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-foreground focus:ring-4 focus:ring-foreground/10">
-						<option value="" disabled>{projects.length ? 'Choose a project' : 'Create a tracking key first'}</option>
+					<select
+						bind:value={projectID}
+						required
+						class="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-foreground focus:ring-4 focus:ring-foreground/10"
+					>
+						<option value="" disabled
+							>{projects.length ? 'Choose a project' : 'Create a tracking key first'}</option
+						>
 						{#each projects as project}<option value={project}>{project}</option>{/each}
 					</select>
 				</label>

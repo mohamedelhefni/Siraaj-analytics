@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { onMount } from 'svelte';
 	import { format, subDays } from 'date-fns';
 	import { LoaderCircle, MessageSquareText, Pause, Play, Plus, Trash2, X } from 'lucide-svelte';
@@ -20,6 +21,7 @@
 		project_id: string;
 		name: string;
 		trigger_event: string;
+		delay_seconds: number;
 		questions: Question[];
 		active: boolean;
 		created_at: string;
@@ -43,6 +45,7 @@
 	let projectID = $state('');
 	let triggerEvent = $state('');
 	let customEvent = $state(false);
+	let delaySeconds = $state(0);
 	const CUSTOM = '__custom__';
 	let draft: { type: QuestionType; text: string; options: string }[] = $state([
 		{ type: 'rating', text: 'How would you rate your experience?', options: '' }
@@ -59,7 +62,12 @@
 		try {
 			projects = await fetchProjects();
 			projectID = projects[0] ?? '';
-			fetchStats(format(subDays(new Date(), 30), 'yyyy-MM-dd'), format(new Date(), 'yyyy-MM-dd'), 100, {})
+			fetchStats(
+				format(subDays(new Date(), 30), 'yyyy-MM-dd'),
+				format(new Date(), 'yyyy-MM-dd'),
+				100,
+				{}
+			)
 				.then((stats: any) => (knownEvents = (stats.top_events ?? []).map((e: any) => e.name)))
 				.catch((err) => console.error('Failed to load events:', err));
 			await loadSurveys();
@@ -89,15 +97,20 @@
 				project_id: projectID,
 				name,
 				trigger_event: triggerEvent,
+				delay_seconds: delaySeconds,
 				questions: draft.map((question) => ({
 					type: question.type,
 					text: question.text,
 					...(question.type === 'choice' && {
-						options: question.options.split(',').map((option) => option.trim()).filter(Boolean)
+						options: question.options
+							.split(',')
+							.map((option) => option.trim())
+							.filter(Boolean)
 					})
 				}))
 			});
 			name = '';
+			delaySeconds = 0;
 			draft = [{ type: 'rating', text: 'How would you rate your experience?', options: '' }];
 			await loadSurveys();
 			await select(surveys.find((survey) => survey.id === created.id) ?? created);
@@ -148,7 +161,11 @@
 		const rows = [
 			{ label: 'Submitted', count: survey.response_count, color: 'bg-emerald-500' },
 			{ label: 'Dismissed', count: survey.dismissed_count, color: 'bg-rose-500' },
-			{ label: 'No action', count: shown - survey.response_count - survey.dismissed_count, color: 'bg-muted-foreground/40' }
+			{
+				label: 'No action',
+				count: shown - survey.response_count - survey.dismissed_count,
+				color: 'bg-muted-foreground/40'
+			}
 		].map((row) => ({ ...row, pct: pct(row.count) }));
 		return { shown, rows };
 	}
@@ -156,8 +173,12 @@
 	// Per-question tallies: counts for rating/choice, recent answers for text.
 	function summarize(question: Question, index: number) {
 		const answers = responses.map((response) => response.answers[index]).filter(Boolean);
-		const values = question.type === 'rating' ? ['1', '2', '3', '4', '5'] : (question.options ?? []);
-		const counts = values.map((value) => ({ value, count: answers.filter((a) => a === value).length }));
+		const values =
+			question.type === 'rating' ? ['1', '2', '3', '4', '5'] : (question.options ?? []);
+		const counts = values.map((value) => ({
+			value,
+			count: answers.filter((a) => a === value).length
+		}));
 		const average =
 			question.type === 'rating' && answers.length
 				? answers.reduce((sum, answer) => sum + Number(answer), 0) / answers.length
@@ -170,19 +191,12 @@
 	<title>Surveys · Siraaj</title>
 </svelte:head>
 
-<main class="mx-auto max-w-7xl px-6 py-10">
-	<header class="mb-10">
-		<div
-			class="mb-3 flex items-center gap-2 text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase"
-		>
-			<MessageSquareText class="size-4" /> Surveys
-		</div>
-		<h1 class="max-w-3xl text-4xl font-semibold tracking-tight sm:text-5xl">Ask at the right moment.</h1>
-		<p class="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-			Pick an event, write a few questions, and the Siraaj SDK shows the survey once per visitor
-			when that event fires. Needs the SDK configured with a <code>trackingToken</code>.
-		</p>
-	</header>
+<main class="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8">
+	<PageHeader
+		class="mb-6"
+		title="Surveys"
+		description="Show a short survey once per visitor when an event fires. Requires the SDK configured with a trackingToken."
+	/>
 
 	{#if error}
 		<div
@@ -202,7 +216,13 @@
 	>
 		<label>
 			<span class="mb-2 block text-sm font-medium">Name</span>
-			<input bind:value={name} required maxlength="500" placeholder="Post-checkout NPS" class={inputClass} />
+			<input
+				bind:value={name}
+				required
+				maxlength="500"
+				placeholder="Post-checkout NPS"
+				class={inputClass}
+			/>
 		</label>
 		<div>
 			<span class="mb-2 block text-sm font-medium">Show when event fires</span>
@@ -221,13 +241,33 @@
 				<option value={CUSTOM}>Custom event…</option>
 			</select>
 			{#if customEvent}
-				<input bind:value={triggerEvent} required maxlength="500" placeholder="Custom event name" class="{inputClass} mt-2" />
+				<input
+					bind:value={triggerEvent}
+					required
+					maxlength="500"
+					placeholder="Custom event name"
+					class="{inputClass} mt-2"
+				/>
 			{/if}
 		</div>
 		<label>
+			<span class="mb-2 block text-sm font-medium">Delay after event (seconds)</span>
+			<input
+				type="number"
+				bind:value={delaySeconds}
+				min="0"
+				max="3600"
+				step="1"
+				required
+				class={inputClass}
+			/>
+		</label>
+		<label>
 			<span class="mb-2 block text-sm font-medium">Project</span>
 			<select bind:value={projectID} required class={inputClass}>
-				<option value="" disabled>{projects.length ? 'Choose a project' : 'Create a tracking key first'}</option>
+				<option value="" disabled
+					>{projects.length ? 'Choose a project' : 'Create a tracking key first'}</option
+				>
 				{#each projects as project}<option value={project}>{project}</option>{/each}
 			</select>
 		</label>
@@ -296,7 +336,9 @@
 			</div>
 			<div class="space-y-3">
 				{#if loading}
-					<div class="flex h-40 items-center justify-center rounded-xl border border-border text-muted-foreground">
+					<div
+						class="flex h-40 items-center justify-center rounded-xl border border-border text-muted-foreground"
+					>
 						<LoaderCircle class="mr-2 size-4 animate-spin" /> Loading surveys
 					</div>
 				{:else if surveys.length === 0}
@@ -307,7 +349,8 @@
 				{:else}
 					{#each surveys as survey}
 						<article
-							class="rounded-xl border border-border p-4 transition hover:border-foreground/30 {selected?.id === survey.id
+							class="rounded-xl border border-border p-4 transition hover:border-foreground/30 {selected?.id ===
+							survey.id
 								? 'bg-muted/60 ring-2 ring-foreground/10'
 								: 'bg-card'}"
 						>
@@ -316,18 +359,24 @@
 									<div class="min-w-0">
 										<p class="truncate font-semibold">{survey.name}</p>
 										<p class="mt-1 truncate text-xs text-muted-foreground">
-											on <code>{survey.trigger_event}</code> · {survey.questions.length} questions
+											on <code>{survey.trigger_event}</code>{survey.delay_seconds
+												? ` after ${survey.delay_seconds}s`
+												: ''} · {survey.questions.length} questions
 										</p>
 									</div>
 									<div class="text-right">
-										<p class="text-xl font-semibold tabular-nums">{survey.response_count.toLocaleString()}</p>
+										<p class="text-xl font-semibold tabular-nums">
+											{survey.response_count.toLocaleString()}
+										</p>
 										<p class="text-[11px] text-muted-foreground uppercase">responses</p>
 									</div>
 								</div>
 							</button>
 							<div class="flex items-center justify-between border-t border-border pt-3">
 								<span class="text-xs text-muted-foreground">
-									{survey.project_id} · {survey.active ? 'Live' : 'Paused'} · {outcomes(survey).rows[0].pct.toFixed(0)}% response rate
+									{survey.project_id} · {survey.active ? 'Live' : 'Paused'} · {outcomes(
+										survey
+									).rows[0].pct.toFixed(0)}% response rate
 								</span>
 								<div class="flex gap-1">
 									<button
@@ -362,10 +411,14 @@
 				>
 					<MessageSquareText class="mb-3 size-7 text-muted-foreground" />
 					<p class="font-medium">Choose a survey</p>
-					<p class="mt-1 max-w-xs text-sm text-muted-foreground">Per-question results will appear here.</p>
+					<p class="mt-1 max-w-xs text-sm text-muted-foreground">
+						Per-question results will appear here.
+					</p>
 				</div>
 			{:else if responsesLoading}
-				<div class="flex h-96 items-center justify-center rounded-2xl border border-border text-muted-foreground">
+				<div
+					class="flex h-96 items-center justify-center rounded-2xl border border-border text-muted-foreground"
+				>
 					<LoaderCircle class="mr-2 size-4 animate-spin" /> Loading responses
 				</div>
 			{:else}
@@ -374,7 +427,9 @@
 					<div class="rounded-xl border border-border bg-card p-5">
 						<div class="mb-4 flex items-baseline justify-between gap-4">
 							<h3 class="font-semibold">Engagement</h3>
-							<span class="text-xs text-muted-foreground">{stats.shown.toLocaleString()} times shown</span>
+							<span class="text-xs text-muted-foreground"
+								>{stats.shown.toLocaleString()} times shown</span
+							>
 						</div>
 						<div class="grid gap-3 sm:grid-cols-3">
 							{#each stats.rows as row}
@@ -383,7 +438,9 @@
 										<span class="size-2 rounded-full {row.color}"></span>{row.label}
 									</p>
 									<p class="mt-1 text-2xl font-semibold tabular-nums">{row.pct.toFixed(1)}%</p>
-									<p class="text-xs text-muted-foreground tabular-nums">{row.count.toLocaleString()}</p>
+									<p class="text-xs text-muted-foreground tabular-nums">
+										{row.count.toLocaleString()}
+									</p>
 								</div>
 							{/each}
 						</div>
@@ -412,7 +469,9 @@
 								<ul class="max-h-72 space-y-2 overflow-y-auto">
 									{#each summary.answers.slice(0, 100) as answer}
 										<li class="rounded-lg bg-muted/40 px-3 py-2 text-sm">{answer}</li>
-									{:else}<li class="py-5 text-center text-sm text-muted-foreground">No answers yet.</li>{/each}
+									{:else}<li class="py-5 text-center text-sm text-muted-foreground">
+											No answers yet.
+										</li>{/each}
 								</ul>
 							{:else}
 								<div class="space-y-3">

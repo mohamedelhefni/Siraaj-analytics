@@ -100,7 +100,7 @@
 
 			// Create color scale based on data
 			const maxCount = d3.max(data, (d: any) => d.count) || 1;
-			const colorScale = d3.scaleSequential(d3.interpolateBlues).domain([0, maxCount]);
+			const colorScale = d3.scaleSequential(d3.interpolateRgb('#e2e8f0', '#1e293b')).domain([0, maxCount]);
 
 			// Create a map of country data for quick lookup
 			// Normalize country names (replace Israel with Palestine)
@@ -147,7 +147,7 @@
 				.attr('fill', (d: any) => {
 					let countryName = normalizeCountryName(d.properties.name);
 					const count = countryDataMap.get(countryName?.toLowerCase());
-					return count ? colorScale(count) : '#e5e7eb';
+					return count ? colorScale(count) : '#f1f5f9';
 				})
 				.on('mouseover', function (this: any, event: any, d: any) {
 					const countryName = normalizeCountryName(d.properties.name);
@@ -158,7 +158,7 @@
 							.transition()
 							.duration(200)
 							.attr('stroke-width', 2)
-							.attr('stroke', '#4f46e5');
+							.attr('stroke', '#0f172a');
 
 						tooltip.transition().duration(200).style('opacity', 1);
 
@@ -235,7 +235,7 @@
 				.call(legendAxis)
 				.selectAll('text')
 				.style('font-size', '10px')
-				.style('fill', '#6b7280');
+				.style('fill', '#64748b');
 
 			legend
 				.append('text')
@@ -243,7 +243,7 @@
 				.attr('y', -5)
 				.attr('text-anchor', 'middle')
 				.style('font-size', '12px')
-				.style('fill', '#374151')
+				.style('fill', '#334155')
 				.text('Visitors');
 
 			// Cleanup function for tooltip
@@ -263,7 +263,7 @@
 					.attr('x', containerWidth / 2)
 					.attr('y', containerHeight / 2)
 					.attr('text-anchor', 'middle')
-					.attr('fill', '#6b7280')
+					.attr('fill', '#64748b')
 					.text('Error loading map data');
 			}
 		}
