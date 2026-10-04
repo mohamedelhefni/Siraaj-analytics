@@ -4,7 +4,7 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
-	import { ChartNoAxesCombined, KeyRound, Link2, LogOut, Menu, MessageSquareText, Route, Settings2, Waypoints, X } from 'lucide-svelte';
+	import { ChartNoAxesCombined, KeyRound, Link2, LogOut, Menu, MessageSquareText, MonitorPlay, Route, Settings2, Users, Waypoints, X } from 'lucide-svelte';
 	import { bootstrap, clearAccessToken, fetchCurrentUser, getAccessToken, login, signup } from '$lib/api.js';
 
 	let { children } = $props();
@@ -23,7 +23,9 @@
 		{ label: 'Analytics', items: [
 			{ path: '/', label: 'Overview', icon: ChartNoAxesCombined },
 			{ path: '/channels', label: 'Channels', icon: Waypoints },
-			{ path: '/funnel', label: 'Funnels', icon: Route }
+			{ path: '/funnel', label: 'Funnels', icon: Route },
+			{ path: '/users', label: 'Users', icon: Users },
+			{ path: '/replays', label: 'Replays', icon: MonitorPlay }
 		] },
 		{ label: 'Engage', items: [
 			{ path: '/links', label: 'Links', icon: Link2 },

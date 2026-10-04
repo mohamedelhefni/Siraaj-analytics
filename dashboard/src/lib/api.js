@@ -171,10 +171,12 @@ export async function fetchComparisonStats(startDate, endDate, limit = 50, filte
  * @param {string} endDate - End date
  * @param {number} limit - Number of events to fetch
  * @param {number} offset - Offset for pagination
- * @returns {Promise<Object>} Events data
+ * @param {string} userId - Optional: one visitor's events (also returns their survey_responses)
+ * @returns {Promise<any>} Events data
  */
-export async function fetchEvents(startDate, endDate, limit = 100, offset = 0) {
+export async function fetchEvents(startDate, endDate, limit = 100, offset = 0, userId = '') {
     const params = new URLSearchParams();
+    if (userId) params.append('user_id', userId);
     if (startDate) params.append('start', startDate);
     if (endDate) params.append('end', endDate);
     params.append('limit', limit.toString());
@@ -273,6 +275,38 @@ export const setSurveyActive = (id, active) => surveyRequest(`?id=${id}`, { meth
 export const deleteSurvey = (id) => surveyRequest(`?id=${id}`, { method: 'DELETE' });
 /** @param {number} id */
 export const fetchSurveyResponses = (id) => surveyRequest(`/responses?id=${id}`);
+
+/** Recordings (one per page load) for the signed-in user's projects, newest first. */
+export async function fetchReplays() {
+    const response = await fetch(`${API_BASE_URL}/replays`);
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || response.statusText);
+    return body;
+}
+
+/**
+ * rrweb events of one recording, sorted by time.
+ * @param {string} project @param {string} recording
+ */
+export async function fetchReplayEvents(project, recording) {
+    const params = new URLSearchParams({ project, recording });
+    const response = await fetch(`${API_BASE_URL}/replays/recording?${params}`);
+    if (!response.ok) throw new Error(`Failed to load replay: ${response.statusText}`);
+    const text = await response.text();
+    return text
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+        .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/** @param {string} project @param {string} recording */
+export async function deleteReplay(project, recording) {
+    const params = new URLSearchParams({ project, recording });
+    const response = await fetch(`${API_BASE_URL}/replays?${params}`, { method: 'DELETE' });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || response.statusText);
+}
 
 /**
  * Health check
