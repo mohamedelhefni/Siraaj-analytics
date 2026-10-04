@@ -991,14 +991,31 @@ class AnalyticsCore {
 
     private showSurveyOnce(survey: Survey): void {
         if (document.getElementById('siraaj-survey')) return;
+        if (!this.inSurveySample(survey)) return;
+        // Stores when it was last shown; older SDKs stored '1', which reads as long ago.
         const seenKey = this.STORAGE_PREFIX + 'survey_' + survey.id;
         try {
-            if (localStorage.getItem(seenKey)) return;
-            localStorage.setItem(seenKey, '1');
+            const last = Number(localStorage.getItem(seenKey)) || 0;
+            const frequency = survey.frequency || 'once';
+            if (last && (frequency === 'once'
+                || (frequency === 'until_answered' && localStorage.getItem(seenKey + '_answered'))
+                || Date.now() - last < (survey.repeat_days || 0) * 86400000)) return;
+            localStorage.setItem(seenKey, String(Date.now()));
         } catch {
             return; // can't remember it was shown, so don't nag on every event
         }
         this.showSurvey(survey);
+    }
+
+    // Same visitor, same survey, same answer every time, so sampling never flickers.
+    private inSurveySample(survey: Survey): boolean {
+        const percent = survey.sample_percent ?? 100;
+        if (percent >= 100) return true;
+        let hash = 0;
+        for (const char of (this.userId || this.getUserId()) + ':' + survey.id) {
+            hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+        }
+        return hash % 100 < percent;
     }
 
     private showSurvey(survey: Survey): void {
@@ -1093,6 +1110,9 @@ ${S} .sj-mark:hover{color:#4b5563}
             const answers = survey.questions.map((_, i) => String(data.get('q' + i) || '').trim());
             if (answers.every(answer => !answer)) return;
             form.remove();
+            try {
+                localStorage.setItem(this.STORAGE_PREFIX + 'survey_' + survey.id + '_answered', '1');
+            } catch { /* only until_answered reads it; worst case the survey shows again */ }
             this.track('survey_sent', { survey_id: survey.id });
             this.surveyPost('respond', { survey_id: survey.id, user_id: this.userId || this.getUserId(), answers });
         };

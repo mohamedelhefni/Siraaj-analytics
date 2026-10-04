@@ -31,6 +31,7 @@
     "clean": "rm -rf dist analytics.js analytics.min.js",
     "dev": "rollup -c rollup.config.mjs -w",
     "typecheck": "tsc --noEmit",
+    "test": "node scripts/survey-frequency.test.mjs",
     "size": "size-limit"
   },
   "keywords": [

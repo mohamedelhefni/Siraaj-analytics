@@ -22,6 +22,9 @@ export interface Survey {
   name: string;
   trigger_event: string;
   delay_seconds?: number;
+  frequency?: 'once' | 'until_answered' | 'recurring';
+  repeat_days?: number;
+  sample_percent?: number;
   questions: { type: 'rating' | 'choice' | 'text'; text: string; options?: string[] }[];
 }
 
