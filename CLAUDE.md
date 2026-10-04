@@ -68,6 +68,7 @@ AUTH_SECRET=replace-with-at-least-32-random-characters
 AUTH_TOKEN_TTL=24h
 CORS=https://example.com      # Default: *
 GEODB_PATH=data/geodb/dbip.mmdb
+REPLAY_DIR=data/replays          # Session replay gzip files, one per session
 ```
 
 ## Architecture
