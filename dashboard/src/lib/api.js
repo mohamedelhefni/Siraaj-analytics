@@ -172,10 +172,12 @@ export async function fetchComparisonStats(startDate, endDate, limit = 50, filte
  * @param {number} limit - Number of events to fetch
  * @param {number} offset - Offset for pagination
  * @param {string} userId - Optional: one visitor's events (also returns their survey_responses)
+ * @param {string} project - Optional: one project's events
  * @returns {Promise<any>} Events data
  */
-export async function fetchEvents(startDate, endDate, limit = 100, offset = 0, userId = '') {
+export async function fetchEvents(startDate, endDate, limit = 100, offset = 0, userId = '', project = '') {
     const params = new URLSearchParams();
+    if (project) params.append('project', project);
     if (userId) params.append('user_id', userId);
     if (startDate) params.append('start', startDate);
     if (endDate) params.append('end', endDate);
@@ -277,8 +279,10 @@ export const deleteSurvey = (id) => surveyRequest(`?id=${id}`, { method: 'DELETE
 export const fetchSurveyResponses = (id) => surveyRequest(`/responses?id=${id}`);
 
 /** Recordings (one per page load) for the signed-in user's projects, newest first. */
-export async function fetchReplays() {
-    const response = await fetch(`${API_BASE_URL}/replays`);
+export async function fetchReplays(project = '') {
+    const params = new URLSearchParams();
+    if (project) params.set('project', project);
+    const response = await fetch(`${API_BASE_URL}/replays?${params}`);
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || response.statusText);
     return body;

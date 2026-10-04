@@ -16,7 +16,7 @@
 		Trash2,
 		UserRound
 	} from 'lucide-svelte';
-	import { deleteReplay, fetchReplayEvents, fetchReplays } from '$lib/api';
+	import { deleteReplay, fetchProjects, fetchReplayEvents, fetchReplays } from '$lib/api';
 
 	type Replay = {
 		project_id: string;
@@ -49,13 +49,12 @@
 	let stageWidth = $state(0);
 	let player: Player | null = $state.raw(null);
 
-	const projects = $derived([...new Set(replays.map((replay) => replay.project_id))].sort());
+	let projects: string[] = $state([]);
 	const visits = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
 		const grouped = new Map<string, Visit>();
 		// Replays arrive newest first; keep that order for visits and play pages oldest first.
 		for (const replay of replays) {
-			if (projectFilter && replay.project_id !== projectFilter) continue;
 			if (needle && !replay.url.toLowerCase().includes(needle)) continue;
 			const key = `${replay.project_id}/${replay.session_id}`;
 			const visit = grouped.get(key) ?? {
@@ -74,25 +73,40 @@
 	const selectedIndex = $derived(selectedVisit?.pages.indexOf(selected!) ?? -1);
 
 	onMount(async () => {
+		fetchProjects()
+			.then((list: string[]) => (projects = list))
+			.catch(() => {});
+		const params = $page.url.searchParams;
+		projectFilter = params.get('project') ?? '';
+		await load(params.get('recording'));
+	});
+
+	// A user's journey links one recording; play it straight away, else cue the newest.
+	async function load(recording: string | null = null) {
+		loading = true;
+		error = null;
 		try {
-			replays = await fetchReplays();
+			replays = await fetchReplays(projectFilter);
 		} catch (caughtError: any) {
 			error = caughtError?.message || 'Failed to load replays';
 		} finally {
 			loading = false;
 		}
-		// Open the visit linked from a user's journey (first page), else the newest recording.
 		await tick();
-		// A user's journey links one recording; play it straight away.
-		const params = $page.url.searchParams;
-		const linked = replays.find(
-			(replay) =>
-				replay.project_id === params.get('project') &&
-				replay.recording_id === params.get('recording')
-		);
+		player?.$destroy();
+		player = null;
+		selected = null;
+		const linked = replays.find((replay) => replay.recording_id === recording);
 		if (linked) void play(linked);
 		else if (replays.length) void play(replays[0], false);
-	});
+	}
+
+	function changeProject() {
+		const params = new URLSearchParams();
+		if (projectFilter) params.set('project', projectFilter);
+		window.history.replaceState({}, '', `${window.location.pathname}?${params}`);
+		void load();
+	}
 
 	onDestroy(() => player?.$destroy());
 
@@ -215,12 +229,12 @@
 				/>
 				<input bind:value={query} placeholder="Filter by page" class="field w-56 pl-9" />
 			</label>
-			{#if projects.length > 1}
-				<select bind:value={projectFilter} aria-label="Project" class="field">
-					<option value="">All projects</option>
-					{#each projects as project}<option value={project}>{project}</option>{/each}
-				</select>
-			{/if}
+		{/if}
+		{#if projects.length > 1}
+			<select bind:value={projectFilter} onchange={changeProject} aria-label="Project" class="field">
+				<option value="">All projects</option>
+				{#each projects as project}<option value={project}>{project}</option>{/each}
+			</select>
 		{/if}
 	</PageHeader>
 
@@ -279,12 +293,12 @@
 								<span class="shrink-0 text-muted-foreground">
 									{visit.pages.length}
 									{visit.pages.length === 1 ? 'page' : 'pages'} · {visitDuration(visit)}
-									{#if projects.length > 1}· {visit.project_id}{/if}
+									{#if !projectFilter && projects.length > 1}· {visit.project_id}{/if}
 								</span>
 							</div>
 							{#if visit.pages[0].user_id}
 								<a
-									href="{base}/users?id={encodeURIComponent(visit.pages[0].user_id)}"
+									href="{base}/users?project={encodeURIComponent(visit.project_id)}&id={encodeURIComponent(visit.pages[0].user_id)}"
 									class="flex items-center gap-1.5 border-b border-border px-3 py-1.5 font-mono text-xs text-muted-foreground hover:text-foreground hover:underline"
 								>
 									<UserRound class="size-3.5 shrink-0" />
@@ -410,7 +424,7 @@
 									</dt>
 									<dd class="mt-0.5 truncate font-mono font-semibold">
 										<a
-											href="{base}/users?id={encodeURIComponent(selected.user_id)}"
+											href="{base}/users?project={encodeURIComponent(selected.project_id)}&id={encodeURIComponent(selected.user_id)}"
 											title={selected.user_id}
 											class="hover:underline">{selected.user_id}</a
 										>

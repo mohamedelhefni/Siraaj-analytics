@@ -17,7 +17,7 @@
 		Users,
 		Zap
 	} from 'lucide-svelte';
-	import { fetchEvents, fetchReplays } from '$lib/api';
+	import { fetchEvents, fetchProjects, fetchReplays } from '$lib/api';
 	import { getBrowserIcon, getCountryFlag, getOSIcon } from '$lib/utils/icons';
 
 	type Ev = {
@@ -58,6 +58,8 @@
 	let events: Ev[] = $state([]);
 	let surveys: Answer[] = $state([]);
 	let error = $state<string | null>(null);
+	let projects: string[] = $state([]);
+	let project = $state('');
 	type Recording = {
 		project_id: string;
 		recording_id: string;
@@ -71,12 +73,24 @@
 	// ponytail: no users endpoint yet, so the list groups the newest 1000 events of the last 30 days.
 	// Add a GROUP BY user_id endpoint when traffic outgrows that window.
 	onMount(async () => {
+		fetchProjects()
+			.then((list: string[]) => (projects = list))
+			.catch(() => {});
+		project = $page.url.searchParams.get('project') ?? '';
+		await load();
+		const id = $page.url.searchParams.get('id');
+		if (id) select(id);
+	});
+
+	async function load() {
+		listLoading = true;
+		error = null;
 		// Replays are optional context; the journey still works without them.
-		fetchReplays()
+		fetchReplays(project)
 			.then((list: Recording[]) => (recordings = list))
 			.catch(() => {});
 		try {
-			const data = await fetchEvents(fmt(subDays(today(), 30)), fmt(today()), 1000);
+			const data = await fetchEvents(fmt(subDays(today(), 30)), fmt(today()), 1000, 0, '', project);
 			const map = new Map<string, Visitor>();
 			for (const e of (data.events ?? []) as Ev[]) {
 				if (!e.user_id) continue;
@@ -103,16 +117,24 @@
 		} finally {
 			listLoading = false;
 		}
-		const id = $page.url.searchParams.get('id');
-		if (id) select(id);
-	});
+	}
+
+	function changeProject() {
+		const params = new URLSearchParams();
+		if (project) params.set('project', project);
+		window.history.replaceState({}, '', `${window.location.pathname}?${params}`);
+		selectedId = null;
+		events = [];
+		surveys = [];
+		void load();
+	}
 
 	async function select(id: string) {
 		selectedId = id;
 		detailLoading = true;
 		error = null;
 		try {
-			const data = await fetchEvents(fmt(subDays(today(), 90)), fmt(today()), 1000, 0, id);
+			const data = await fetchEvents(fmt(subDays(today(), 90)), fmt(today()), 1000, 0, id, project);
 			if (selectedId !== id) return;
 			events = data.events ?? [];
 			surveys = data.survey_responses ?? [];
@@ -237,7 +259,14 @@
 		class="mb-6"
 		title="Users"
 		description="Follow one visitor from first visit onward. Call identify(&quot;your-user-id&quot;) in the SDK to tie visits to your own users."
-	/>
+	>
+		{#if projects.length > 1}
+			<select bind:value={project} onchange={changeProject} aria-label="Project" class="field">
+				<option value="">All projects</option>
+				{#each projects as p}<option value={p}>{p}</option>{/each}
+			</select>
+		{/if}
+	</PageHeader>
 
 	{#if error}
 		<div
