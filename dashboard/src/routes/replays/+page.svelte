@@ -1,4 +1,5 @@
 <script lang="ts">
+	import UserAvatar, { userName } from '$lib/components/UserAvatar.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { base } from '$app/paths';
@@ -231,7 +232,12 @@
 			</label>
 		{/if}
 		{#if projects.length > 1}
-			<select bind:value={projectFilter} onchange={changeProject} aria-label="Project" class="field">
+			<select
+				bind:value={projectFilter}
+				onchange={changeProject}
+				aria-label="Project"
+				class="field"
+			>
 				<option value="">All projects</option>
 				{#each projects as project}<option value={project}>{project}</option>{/each}
 			</select>
@@ -298,11 +304,13 @@
 							</div>
 							{#if visit.pages[0].user_id}
 								<a
-									href="{base}/users?project={encodeURIComponent(visit.project_id)}&id={encodeURIComponent(visit.pages[0].user_id)}"
-									class="flex items-center gap-1.5 border-b border-border px-3 py-1.5 font-mono text-xs text-muted-foreground hover:text-foreground hover:underline"
+									href="{base}/users?project={encodeURIComponent(
+										visit.project_id
+									)}&id={encodeURIComponent(visit.pages[0].user_id)}"
+									class="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline"
 								>
-									<UserRound class="size-3.5 shrink-0" />
-									<span class="truncate">{visit.pages[0].user_id}</span>
+									<UserAvatar id={visit.pages[0].user_id} size={18} />
+									<span class="truncate">{userName(visit.pages[0].user_id)}</span>
 								</a>
 							{/if}
 							<ol>
@@ -422,11 +430,16 @@
 									<dt class="flex items-center gap-1.5 text-xs text-muted-foreground">
 										<UserRound class="size-3.5" /> User
 									</dt>
-									<dd class="mt-0.5 truncate font-mono font-semibold">
+									<dd class="mt-0.5 font-semibold">
 										<a
-											href="{base}/users?project={encodeURIComponent(selected.project_id)}&id={encodeURIComponent(selected.user_id)}"
+											href="{base}/users?project={encodeURIComponent(
+												selected.project_id
+											)}&id={encodeURIComponent(selected.user_id)}"
 											title={selected.user_id}
-											class="hover:underline">{selected.user_id}</a
+											class="flex min-w-0 items-center gap-2 hover:underline"
+											><UserAvatar id={selected.user_id} size={22} /><span class="truncate"
+												>{userName(selected.user_id)}</span
+											></a
 										>
 									</dd>
 								</div>

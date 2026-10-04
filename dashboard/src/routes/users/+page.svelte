@@ -1,5 +1,6 @@
 <script lang="ts">
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import UserAvatar, { isIdentified, userName } from '$lib/components/UserAvatar.svelte';
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/stores';
@@ -145,9 +146,10 @@
 		}
 	}
 
-	const shown = $derived(
-		visitors.filter((v) => v.id.toLowerCase().includes(query.trim().toLowerCase()))
-	);
+	const shown = $derived.by(() => {
+		const q = query.trim().toLowerCase();
+		return visitors.filter((v) => `${v.id} ${userName(v.id)}`.toLowerCase().includes(q));
+	});
 
 	// Events and survey answers merged newest-first, then bucketed by day.
 	const days = $derived.by(() => {
@@ -215,11 +217,6 @@
 	function short(id: string) {
 		return id.length > 18 ? id.slice(0, 8) + '…' + id.slice(-4) : id;
 	}
-	function hue(id: string) {
-		let h = 0;
-		for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 360;
-		return h;
-	}
 </script>
 
 {#snippet environment(where: { country: string; device: string; browser: string; os: string })}
@@ -283,7 +280,7 @@
 				<Search class="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
 				<input
 					bind:value={query}
-					placeholder="Search by user id"
+					placeholder="Search by name or user id"
 					aria-label="Search users"
 					class="w-full rounded-xl border border-border bg-card py-2.5 pr-3 pl-9 text-sm outline-none focus:ring-2 focus:ring-foreground/10"
 				/>
@@ -319,13 +316,14 @@
 								? 'bg-muted/60 ring-2 ring-foreground/10'
 								: 'bg-card'}"
 						>
-							<span
-								class="flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
-								style="background:hsl({hue(v.id)} 55% 45%)"
-								aria-hidden="true">{v.id.slice(0, 2).toUpperCase()}</span
-							>
+							<UserAvatar id={v.id} />
 							<span class="min-w-0 flex-1">
-								<span class="block truncate font-mono text-sm font-medium">{short(v.id)}</span>
+								<span class="block truncate text-sm font-medium">{userName(v.id)}</span>
+								{#if !isIdentified(v.id)}
+									<span class="block truncate font-mono text-[11px] text-muted-foreground"
+										>{short(v.id)}</span
+									>
+								{/if}
 								<span class="block truncate text-xs text-muted-foreground">
 									Last seen {formatDistanceToNow(new Date(v.last), { addSuffix: true })}
 								</span>
@@ -359,12 +357,28 @@
 					<LoaderCircle class="mr-2 size-5 animate-spin" /> Loading journey
 				</div>
 			{:else}
-				<h2 class="mb-4 truncate font-mono text-lg font-semibold" title={selectedId}>
-					{selectedId}
-				</h2>
+				<div class="mb-5 flex items-center gap-4">
+					<UserAvatar id={selectedId} size={56} />
+					<div class="min-w-0">
+						<h2 class="truncate text-lg font-semibold" title={selectedId}>
+							{userName(selectedId)}
+						</h2>
+						<p class="flex items-center gap-2 text-xs text-muted-foreground">
+							<span
+								class="rounded-full border px-2 py-0.5 font-medium {isIdentified(selectedId)
+									? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
+									: 'border-border bg-muted'}"
+								>{isIdentified(selectedId) ? 'Identified' : 'Anonymous'}</span
+							>
+							{#if !isIdentified(selectedId)}
+								<span class="truncate font-mono">{selectedId}</span>
+							{/if}
+						</p>
+					</div>
+				</div>
 				{#if summary}
-					<div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-						{#each [['First seen', formatDistanceToNow( new Date(summary.first), { addSuffix: true } )], ['Last seen', formatDistanceToNow( new Date(summary.last), { addSuffix: true } )], ['Sessions', summary.sessions], ['Page views', summary.pages]] as [name, value]}
+					<div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
+						{#each [['First seen', formatDistanceToNow( new Date(summary.first), { addSuffix: true } )], ['Last seen', formatDistanceToNow( new Date(summary.last), { addSuffix: true } )], ['Sessions', summary.sessions], ['Page views', summary.pages], ['Surveys', surveys.length]] as [name, value]}
 							<div class="rounded-xl border border-border bg-card p-4">
 								<p class="text-[11px] text-muted-foreground uppercase">{name}</p>
 								<p class="mt-1 text-xl font-semibold tabular-nums">{value}</p>

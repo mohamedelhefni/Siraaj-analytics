@@ -271,6 +271,8 @@ async function surveyRequest(path, init = {}) {
 export const fetchSurveys = () => surveyRequest('');
 /** @param {{project_id: string, name: string, trigger_event: string, delay_seconds?: number, questions: Array<{type: string, text: string, options?: string[]}>}} survey */
 export const createSurvey = (survey) => surveyRequest('', { method: 'POST', body: JSON.stringify(survey) });
+
+export const updateSurvey = (id, survey) => surveyRequest(`?id=${id}`, { method: 'PUT', body: JSON.stringify(survey) });
 /** @param {number} id @param {boolean} active */
 export const setSurveyActive = (id, active) => surveyRequest(`?id=${id}`, { method: 'PATCH', body: JSON.stringify({ active }) });
 /** @param {number} id */

@@ -1,8 +1,19 @@
 <script lang="ts">
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import UserAvatar, { userName } from '$lib/components/UserAvatar.svelte';
 	import { onMount } from 'svelte';
+	import { base } from '$app/paths';
 	import { format, subDays } from 'date-fns';
-	import { LoaderCircle, MessageSquareText, Pause, Play, Plus, Trash2, X } from 'lucide-svelte';
+	import {
+		LoaderCircle,
+		MessageSquareText,
+		Pause,
+		Pencil,
+		Play,
+		Plus,
+		Trash2,
+		X
+	} from 'lucide-svelte';
 	import { Button } from '$lib/components/ui/button';
 	import {
 		createSurvey,
@@ -11,17 +22,22 @@
 		fetchSurveyResponses,
 		fetchSurveys,
 		fetchStats,
-		setSurveyActive
+		setSurveyActive,
+		updateSurvey
 	} from '$lib/api';
 
 	type QuestionType = 'rating' | 'choice' | 'text';
 	type Question = { type: QuestionType; text: string; options?: string[] };
+	type Frequency = 'once' | 'until_answered' | 'recurring';
 	type Survey = {
 		id: number;
 		project_id: string;
 		name: string;
 		trigger_event: string;
 		delay_seconds: number;
+		frequency: Frequency;
+		repeat_days: number;
+		sample_percent: number;
 		questions: Question[];
 		active: boolean;
 		created_at: string;
@@ -46,10 +62,23 @@
 	let triggerEvent = $state('');
 	let customEvent = $state(false);
 	let delaySeconds = $state(0);
+	let frequency: Frequency = $state('once');
+	let repeatDays = $state(30);
+	let samplePercent = $state(100);
+	let editing: Survey | null = $state(null);
 	const CUSTOM = '__custom__';
-	let draft: { type: QuestionType; text: string; options: string }[] = $state([
-		{ type: 'rating', text: 'How would you rate your experience?', options: '' }
-	]);
+	const starterQuestion = () => ({
+		type: 'rating' as QuestionType,
+		text: 'How would you rate your experience?',
+		options: ''
+	});
+	let draft: { type: QuestionType; text: string; options: string }[] = $state([starterQuestion()]);
+	const frequencyLabel = (survey: Survey) =>
+		survey.frequency === 'recurring'
+			? `every ${survey.repeat_days}d`
+			: survey.frequency === 'until_answered'
+				? `every ${survey.repeat_days}d until answered`
+				: 'once';
 
 	const inputClass =
 		'h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-foreground focus:ring-4 focus:ring-foreground/10';
@@ -89,15 +118,48 @@
 		}
 	}
 
-	async function create() {
+	function resetForm() {
+		editing = null;
+		name = '';
+		triggerEvent = '';
+		customEvent = false;
+		delaySeconds = 0;
+		frequency = 'once';
+		repeatDays = 30;
+		samplePercent = 100;
+		draft = [starterQuestion()];
+	}
+
+	function edit(survey: Survey) {
+		editing = survey;
+		name = survey.name;
+		projectID = survey.project_id;
+		triggerEvent = survey.trigger_event;
+		customEvent = !knownEvents.includes(survey.trigger_event);
+		delaySeconds = survey.delay_seconds;
+		frequency = survey.frequency;
+		repeatDays = survey.repeat_days || 30;
+		samplePercent = survey.sample_percent;
+		draft = survey.questions.map((question) => ({
+			type: question.type,
+			text: question.text,
+			options: (question.options ?? []).join(', ')
+		}));
+		window.scrollTo({ top: 0, behavior: 'smooth' });
+	}
+
+	async function save() {
 		creating = true;
 		error = null;
 		try {
-			const created = await createSurvey({
+			const body = {
 				project_id: projectID,
 				name,
 				trigger_event: triggerEvent,
 				delay_seconds: delaySeconds,
+				frequency,
+				repeat_days: frequency === 'once' ? 0 : repeatDays,
+				sample_percent: samplePercent,
 				questions: draft.map((question) => ({
 					type: question.type,
 					text: question.text,
@@ -108,14 +170,15 @@
 							.filter(Boolean)
 					})
 				}))
-			});
-			name = '';
-			delaySeconds = 0;
-			draft = [{ type: 'rating', text: 'How would you rate your experience?', options: '' }];
+			};
+			const id = editing ? editing.id : (await createSurvey(body)).id;
+			if (editing) await updateSurvey(id, body);
+			resetForm();
 			await loadSurveys();
-			await select(surveys.find((survey) => survey.id === created.id) ?? created);
+			const saved = surveys.find((survey) => survey.id === id);
+			if (saved) await select(saved);
 		} catch (caughtError: any) {
-			error = caughtError?.message || 'Failed to create survey';
+			error = caughtError?.message || 'Failed to save survey';
 		} finally {
 			creating = false;
 		}
@@ -195,7 +258,7 @@
 	<PageHeader
 		class="mb-6"
 		title="Surveys"
-		description="Show a short survey once per visitor when an event fires. Requires the SDK configured with a trackingToken."
+		description="Show a short survey when an event fires, once or on a repeating schedule per visitor. Requires the SDK configured with a trackingToken."
 	/>
 
 	{#if error}
@@ -211,9 +274,17 @@
 		class="mb-10 grid gap-5 rounded-2xl border border-border bg-card p-7 shadow-sm sm:grid-cols-3"
 		onsubmit={(event) => {
 			event.preventDefault();
-			create();
+			save();
 		}}
 	>
+		{#if editing}
+			<p
+				class="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm sm:col-span-3"
+			>
+				Editing <strong>{editing.name}</strong>. Answers are stored by question position, so
+				reordering or removing questions changes how earlier responses line up.
+			</p>
+		{/if}
 		<label>
 			<span class="mb-2 block text-sm font-medium">Name</span>
 			<input
@@ -264,12 +335,48 @@
 		</label>
 		<label>
 			<span class="mb-2 block text-sm font-medium">Project</span>
-			<select bind:value={projectID} required class={inputClass}>
+			<select bind:value={projectID} required disabled={!!editing} class={inputClass}>
 				<option value="" disabled
 					>{projects.length ? 'Choose a project' : 'Create a tracking key first'}</option
 				>
 				{#each projects as project}<option value={project}>{project}</option>{/each}
 			</select>
+		</label>
+		<div>
+			<span class="mb-2 block text-sm font-medium">Show to each visitor</span>
+			<select bind:value={frequency} class={inputClass}>
+				<option value="once">Once, never again</option>
+				<option value="until_answered">Repeatedly until they answer</option>
+				<option value="recurring">Repeatedly, even after answering</option>
+			</select>
+			{#if frequency !== 'once'}
+				<label class="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+					Every
+					<input
+						type="number"
+						bind:value={repeatDays}
+						min="1"
+						max="365"
+						step="1"
+						required
+						aria-label="Days between showings"
+						class="{inputClass} w-24"
+					/>
+					days
+				</label>
+			{/if}
+		</div>
+		<label>
+			<span class="mb-2 block text-sm font-medium">Visitors who can see it (%)</span>
+			<input
+				type="number"
+				bind:value={samplePercent}
+				min="1"
+				max="100"
+				step="1"
+				required
+				class={inputClass}
+			/>
 		</label>
 
 		<fieldset class="space-y-3 sm:col-span-3">
@@ -321,10 +428,15 @@
 			>
 				<Plus /> Add question
 			</Button>
-			<Button type="submit" disabled={creating} class="min-w-32">
-				{#if creating}<LoaderCircle class="animate-spin" />{/if}
-				{creating ? 'Creating…' : 'Create survey'}
-			</Button>
+			<div class="flex gap-2">
+				{#if editing}
+					<Button type="button" variant="outline" onclick={resetForm}>Cancel</Button>
+				{/if}
+				<Button type="submit" disabled={creating} class="min-w-32">
+					{#if creating}<LoaderCircle class="animate-spin" />{/if}
+					{creating ? 'Saving…' : editing ? 'Save changes' : 'Create survey'}
+				</Button>
+			</div>
 		</div>
 	</form>
 
@@ -361,6 +473,8 @@
 										<p class="mt-1 truncate text-xs text-muted-foreground">
 											on <code>{survey.trigger_event}</code>{survey.delay_seconds
 												? ` after ${survey.delay_seconds}s`
+												: ''} · {frequencyLabel(survey)}{survey.sample_percent < 100
+												? ` · ${survey.sample_percent}% of visitors`
 												: ''} · {survey.questions.length} questions
 										</p>
 									</div>
@@ -386,6 +500,14 @@
 										class="rounded-md p-1.5 transition hover:bg-accent"
 									>
 										{#if survey.active}<Pause class="size-4" />{:else}<Play class="size-4" />{/if}
+									</button>
+									<button
+										type="button"
+										onclick={() => edit(survey)}
+										aria-label="Edit survey"
+										class="rounded-md p-1.5 transition hover:bg-accent"
+									>
+										<Pencil class="size-4" />
 									</button>
 									<button
 										type="button"
@@ -493,6 +615,44 @@
 							{/if}
 						</div>
 					{/each}
+					<div class="rounded-xl border border-border bg-card p-5">
+						<div class="mb-4 flex items-baseline justify-between gap-4">
+							<h3 class="font-semibold">Responses by user</h3>
+							<span class="text-xs text-muted-foreground"
+								>{new Set(responses.map((r) => r.user_id).filter(Boolean)).size} users</span
+							>
+						</div>
+						<ul class="max-h-96 space-y-2 overflow-y-auto">
+							{#each responses.slice(0, 100) as response (response.id)}
+								<li class="rounded-lg bg-muted/40 px-3 py-2 text-sm">
+									<div class="flex items-baseline justify-between gap-4">
+										{#if response.user_id}
+											<a
+												href="{base}/users?project={encodeURIComponent(
+													selected.project_id
+												)}&id={encodeURIComponent(response.user_id)}"
+												class="flex min-w-0 items-center gap-2 text-xs font-medium underline-offset-2 hover:underline"
+												title={response.user_id}
+												><UserAvatar id={response.user_id} size={22} /><span class="truncate"
+													>{userName(response.user_id)}</span
+												></a
+											>
+										{:else}
+											<span class="text-xs text-muted-foreground">Anonymous</span>
+										{/if}
+										<time class="shrink-0 text-xs text-muted-foreground tabular-nums"
+											>{format(new Date(response.created_at), 'MMM d, HH:mm')}</time
+										>
+									</div>
+									<p class="mt-1 truncate text-muted-foreground">
+										{response.answers.filter(Boolean).join(' · ')}
+									</p>
+								</li>
+							{:else}<li class="py-5 text-center text-sm text-muted-foreground">
+									No responses yet.
+								</li>{/each}
+						</ul>
+					</div>
 				</div>
 			{/if}
 		</section>
