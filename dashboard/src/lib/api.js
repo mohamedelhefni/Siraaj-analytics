@@ -256,6 +256,24 @@ export async function fetchShortLinkStats(slug, startDate, endDate) {
     return response.json();
 }
 
+/** @param {string} path @param {RequestInit} [init] */
+async function surveyRequest(path, init = {}) {
+    const response = await fetch(`${API_BASE_URL}/surveys${path}`, { ...init, headers: { 'Content-Type': 'application/json' } });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || response.statusText);
+    return body;
+}
+
+export const fetchSurveys = () => surveyRequest('');
+/** @param {{project_id: string, name: string, trigger_event: string, questions: Array<{type: string, text: string, options?: string[]}>}} survey */
+export const createSurvey = (survey) => surveyRequest('', { method: 'POST', body: JSON.stringify(survey) });
+/** @param {number} id @param {boolean} active */
+export const setSurveyActive = (id, active) => surveyRequest(`?id=${id}`, { method: 'PATCH', body: JSON.stringify({ active }) });
+/** @param {number} id */
+export const deleteSurvey = (id) => surveyRequest(`?id=${id}`, { method: 'DELETE' });
+/** @param {number} id */
+export const fetchSurveyResponses = (id) => surveyRequest(`/responses?id=${id}`);
+
 /**
  * Health check
  * @returns {Promise<Object>} Health status
