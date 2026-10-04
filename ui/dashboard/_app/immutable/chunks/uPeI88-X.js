@@ -1,4 +1,4 @@
-import"./DsnmJJEf.js";import"./DN5VDDjW.js";import{c as n,f as d,a as i}from"./DwswK_Ih.js";import{I as c,s as h}from"./B_kh0Z4x.js";import{l,s as m}from"./CT69Z5cu.js";function g(s,a){const o=l(a,["children","$$slots","$$events","$$legacy"]);/**
+import"./DsnmJJEf.js";import"./CIcg_ujN.js";import{c as p,f as i,a as c}from"./CxepKlai.js";import{I as d,s as m}from"./CcQuqRQO.js";import{l,s as $}from"./Bm1MpZaF.js";function x(s,o){const r=l(o,["children","$$slots","$$events","$$legacy"]);/**
  * @license lucide-svelte v0.546.0 - ISC
  *
  * ISC License
@@ -41,4 +41,4 @@ import"./DsnmJJEf.js";import"./DN5VDDjW.js";import{c as n,f as d,a as i}from"./D
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  *
- */const r=[["path",{d:"M10 11v6"}],["path",{d:"M14 11v6"}],["path",{d:"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"}],["path",{d:"M3 6h18"}],["path",{d:"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]];c(s,m({name:"trash-2"},()=>o,{get iconNode(){return r},children:(e,$)=>{var t=n(),p=d(t);h(p,a,"default",{}),i(e,t)},$$slots:{default:!0}}))}export{g as T};
+ */const e=[["path",{d:"M18 6 6 18"}],["path",{d:"m6 6 12 12"}]];d(s,$({name:"x"},()=>r,{get iconNode(){return e},children:(a,f)=>{var t=p(),n=i(t);m(n,o,"default",{}),c(a,t)},$$slots:{default:!0}}))}export{x as X};

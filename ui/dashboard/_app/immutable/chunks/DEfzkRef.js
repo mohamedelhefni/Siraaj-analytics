@@ -1,4 +1,4 @@
-import"./DsnmJJEf.js";import"./DN5VDDjW.js";import{c as i,f as p,a as l}from"./DwswK_Ih.js";import{I as c,s as d}from"./B_kh0Z4x.js";import{l as m,s as $}from"./CT69Z5cu.js";function v(t,o){const a=m(o,["children","$$slots","$$events","$$legacy"]);/**
+import"./DsnmJJEf.js";import"./CIcg_ujN.js";import{c as n,f as p,a as i}from"./CxepKlai.js";import{I as d,s as l}from"./CcQuqRQO.js";import{l as m,s as $}from"./Bm1MpZaF.js";function y(r,a){const o=m(a,["children","$$slots","$$events","$$legacy"]);/**
  * @license lucide-svelte v0.546.0 - ISC
  *
  * ISC License
@@ -41,4 +41,4 @@ import"./DsnmJJEf.js";import"./DN5VDDjW.js";import{c as i,f as p,a as l}from"./D
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  *
- */const e=[["path",{d:"M9 17H7A5 5 0 0 1 7 7h2"}],["path",{d:"M15 7h2a5 5 0 1 1 0 10h-2"}],["line",{x1:"8",x2:"16",y1:"12",y2:"12"}]];c(t,$({name:"link-2"},()=>a,{get iconNode(){return e},children:(r,f)=>{var s=i(),n=p(s);d(n,o,"default",{}),l(r,s)},$$slots:{default:!0}}))}export{v as L};
+ */const s=[["path",{d:"M21.54 15H17a2 2 0 0 0-2 2v4.54"}],["path",{d:"M7 3.34V5a3 3 0 0 0 3 3a2 2 0 0 1 2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2c0-1.1.9-2 2-2h3.17"}],["path",{d:"M11 21.95V18a2 2 0 0 0-2-2a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05"}],["circle",{cx:"12",cy:"12",r:"10"}]];d(r,$({name:"earth"},()=>o,{get iconNode(){return s},children:(e,f)=>{var t=n(),c=p(t);l(c,a,"default",{}),i(e,t)},$$slots:{default:!0}}))}export{y as E};
