@@ -18,6 +18,7 @@ type createSurveyRequest struct {
 	ProjectID    string                  `json:"project_id"`
 	Name         string                  `json:"name"`
 	TriggerEvent string                  `json:"trigger_event"`
+	DelaySeconds int                     `json:"delay_seconds"`
 	Questions    []domain.SurveyQuestion `json:"questions"`
 }
 
@@ -45,7 +46,8 @@ func (h *SurveyHandler) Surveys(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		survey, err := h.service.Create(domain.Survey{
-			ProjectID: request.ProjectID, Name: request.Name, TriggerEvent: request.TriggerEvent, Questions: request.Questions,
+			ProjectID: request.ProjectID, Name: request.Name, TriggerEvent: request.TriggerEvent,
+			DelaySeconds: request.DelaySeconds, Questions: request.Questions,
 		}, ownerID)
 		writeSurveyResult(w, http.StatusCreated, survey, err)
 	case http.MethodPatch:

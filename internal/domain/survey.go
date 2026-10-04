@@ -19,6 +19,7 @@ type Survey struct {
 	ProjectID      string           `json:"project_id"`
 	Name           string           `json:"name"`
 	TriggerEvent   string           `json:"trigger_event"`
+	DelaySeconds   int              `json:"delay_seconds"` // wait after the trigger event before showing
 	Questions      []SurveyQuestion `json:"questions"`
 	Active         bool             `json:"active"`
 	CreatedAt      time.Time        `json:"created_at"`

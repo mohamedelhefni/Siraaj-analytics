@@ -44,3 +44,16 @@ func TestSurveyValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestSurveyDelayValidation(t *testing.T) {
+	service := NewSurveyService(nil) // delay is rejected before the repository is touched
+	for _, delay := range []int{-1, maxSurveyDelay + 1} {
+		_, err := service.Create(domain.Survey{
+			Name: "NPS", TriggerEvent: "checkout", DelaySeconds: delay,
+			Questions: []domain.SurveyQuestion{{Type: "text", Text: "Thoughts?"}},
+		}, "owner")
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("delay %d: got %v, want ErrInvalidInput", delay, err)
+		}
+	}
+}

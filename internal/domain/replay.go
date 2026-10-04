@@ -17,6 +17,7 @@ type Replay struct {
 	RecordingID string    `json:"recording_id"`
 	SessionID   string    `json:"session_id"`
 	URL         string    `json:"url"`
+	UserID      string    `json:"user_id"`
 	StartedAt   time.Time `json:"started_at"`
 	EndedAt     time.Time `json:"ended_at"`
 	Chunks      int64     `json:"chunks"`

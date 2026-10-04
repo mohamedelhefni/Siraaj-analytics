@@ -75,10 +75,20 @@ func (r *replayRepository) Append(chunk domain.ReplayChunk, maxBytes int64) erro
 
 func (r *replayRepository) List(ownerID string) ([]domain.Replay, error) {
 	// ponytail: newest 500 only; paginate when projects outgrow that.
+	// user_id is the session's latest identity, so identify() mid-visit links the whole visit.
 	rows, err := r.db.Query(`
-		SELECT project_id, recording_id, session_id, COALESCE(url, ''), started_at, ended_at, chunks, bytes, clicks
-		FROM replays WHERE project_id IN (SELECT id FROM projects WHERE owner_id = ?)
-		ORDER BY started_at DESC LIMIT 500
+		WITH recent AS (
+			SELECT * FROM replays WHERE project_id IN (SELECT id FROM projects WHERE owner_id = ?)
+			ORDER BY started_at DESC LIMIT 500
+		), users AS (
+			SELECT project_id, session_id, arg_max(user_id, timestamp) AS user_id FROM events
+			WHERE user_id <> '' AND session_id IN (SELECT session_id FROM recent)
+			GROUP BY project_id, session_id
+		)
+		SELECT r.project_id, r.recording_id, r.session_id, COALESCE(r.url, ''), COALESCE(u.user_id, ''),
+			r.started_at, r.ended_at, r.chunks, r.bytes, r.clicks
+		FROM recent r LEFT JOIN users u USING (project_id, session_id)
+		ORDER BY r.started_at DESC
 	`, ownerID)
 	if err != nil {
 		return nil, err
@@ -88,7 +98,7 @@ func (r *replayRepository) List(ownerID string) ([]domain.Replay, error) {
 	replays := []domain.Replay{}
 	for rows.Next() {
 		var replay domain.Replay
-		if err := rows.Scan(&replay.ProjectID, &replay.RecordingID, &replay.SessionID, &replay.URL,
+		if err := rows.Scan(&replay.ProjectID, &replay.RecordingID, &replay.SessionID, &replay.URL, &replay.UserID,
 			&replay.StartedAt, &replay.EndedAt, &replay.Chunks, &replay.Bytes, &replay.Clicks); err != nil {
 			return nil, err
 		}

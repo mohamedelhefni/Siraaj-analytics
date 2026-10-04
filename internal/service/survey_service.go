@@ -16,6 +16,7 @@ const (
 	maxSurveyOptions   = 10
 	maxSurveyText      = 500
 	maxAnswerLength    = 2000
+	maxSurveyDelay     = 3600
 )
 
 type SurveyService interface {
@@ -45,6 +46,9 @@ func (s *surveyService) Create(survey domain.Survey, ownerID string) (domain.Sur
 	}
 	if survey.TriggerEvent == "" || len(survey.TriggerEvent) > maxSurveyText {
 		return domain.Survey{}, invalid("trigger_event is required")
+	}
+	if survey.DelaySeconds < 0 || survey.DelaySeconds > maxSurveyDelay {
+		return domain.Survey{}, invalid(fmt.Sprintf("delay_seconds must be 0-%d", maxSurveyDelay))
 	}
 	if err := validateQuestions(survey.Questions); err != nil {
 		return domain.Survey{}, err

@@ -283,6 +283,15 @@ var migrations = []Migration{
 			PRIMARY KEY (project_id, session_id)
 		);`,
 	},
+	{
+		Version:     13,
+		Description: "Delay surveys after their trigger event",
+		Up:          `ALTER TABLE surveys ADD COLUMN IF NOT EXISTS delay_seconds UINTEGER DEFAULT 0;`,
+		// DuckDB refuses to drop columns from an indexed table, so the index is rebuilt around it.
+		Down: `DROP INDEX IF EXISTS idx_surveys_project;
+		ALTER TABLE surveys DROP COLUMN IF EXISTS delay_seconds;
+		CREATE INDEX IF NOT EXISTS idx_surveys_project ON surveys(project_id);`,
+	},
 }
 
 func initMigrationTable(db *sql.DB) error {
