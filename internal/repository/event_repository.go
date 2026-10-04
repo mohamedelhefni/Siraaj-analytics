@@ -285,12 +285,12 @@ func (r *eventRepository) GetEvents(eventQuery domain.EventQuery) (map[string]an
 		FROM events
 		WHERE date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)
 			AND project_id IN (SELECT id FROM projects WHERE owner_id = ?)
-			AND (? = '' OR user_id = ?)
+			AND (? = '' OR user_id = ?) AND (? = '' OR project_id = ?)
 		ORDER BY timestamp DESC
 		LIMIT ? OFFSET ?
 	`
 
-	rows, err := r.db.Query(query, eventQuery.StartDate, eventQuery.EndDate, eventQuery.OwnerID, eventQuery.UserID, eventQuery.UserID, eventQuery.Limit, eventQuery.Offset)
+	rows, err := r.db.Query(query, eventQuery.StartDate, eventQuery.EndDate, eventQuery.OwnerID, eventQuery.UserID, eventQuery.UserID, eventQuery.ProjectID, eventQuery.ProjectID, eventQuery.Limit, eventQuery.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -318,8 +318,8 @@ func (r *eventRepository) GetEvents(eventQuery domain.EventQuery) (map[string]an
 	// Get total count
 	var total int64
 	countQuery := `SELECT COUNT(*) FROM events WHERE date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)
-		AND project_id IN (SELECT id FROM projects WHERE owner_id = ?) AND (? = '' OR user_id = ?)`
-	err = r.db.QueryRow(countQuery, eventQuery.StartDate, eventQuery.EndDate, eventQuery.OwnerID, eventQuery.UserID, eventQuery.UserID).Scan(&total)
+		AND project_id IN (SELECT id FROM projects WHERE owner_id = ?) AND (? = '' OR user_id = ?) AND (? = '' OR project_id = ?)`
+	err = r.db.QueryRow(countQuery, eventQuery.StartDate, eventQuery.EndDate, eventQuery.OwnerID, eventQuery.UserID, eventQuery.UserID, eventQuery.ProjectID, eventQuery.ProjectID).Scan(&total)
 	if err != nil {
 		return nil, err
 	}
@@ -336,8 +336,8 @@ func (r *eventRepository) GetEvents(eventQuery domain.EventQuery) (map[string]an
 		rows, err := r.db.Query(`
 			SELECT sr.survey_id, s.name, CAST(sr.answers AS VARCHAR), sr.created_at
 			FROM survey_responses sr JOIN surveys s ON s.id = sr.survey_id
-			WHERE sr.user_id = ? AND s.project_id IN (SELECT id FROM projects WHERE owner_id = ?)
-			ORDER BY sr.created_at DESC LIMIT 1000`, eventQuery.UserID, eventQuery.OwnerID)
+			WHERE sr.user_id = ? AND s.project_id IN (SELECT id FROM projects WHERE owner_id = ?) AND (? = '' OR s.project_id = ?)
+			ORDER BY sr.created_at DESC LIMIT 1000`, eventQuery.UserID, eventQuery.OwnerID, eventQuery.ProjectID, eventQuery.ProjectID)
 		if err != nil {
 			return nil, err
 		}

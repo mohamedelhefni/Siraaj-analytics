@@ -14,7 +14,7 @@ import (
 type ReplayRepository interface {
 	// Append adds a gzip member to the recording's file, refusing to grow it past maxBytes.
 	Append(chunk domain.ReplayChunk, maxBytes int64) error
-	List(ownerID string) ([]domain.Replay, error)
+	List(projectID, ownerID string) ([]domain.Replay, error)
 	Open(ownerID, projectID, recordingID string) (*os.File, error)
 	Delete(ownerID, projectID, recordingID string) error
 }
@@ -73,12 +73,12 @@ func (r *replayRepository) Append(chunk domain.ReplayChunk, maxBytes int64) erro
 	return err
 }
 
-func (r *replayRepository) List(ownerID string) ([]domain.Replay, error) {
+func (r *replayRepository) List(projectID, ownerID string) ([]domain.Replay, error) {
 	// ponytail: newest 500 only; paginate when projects outgrow that.
 	// user_id is the session's latest identity, so identify() mid-visit links the whole visit.
 	rows, err := r.db.Query(`
 		WITH recent AS (
-			SELECT * FROM replays WHERE project_id IN (SELECT id FROM projects WHERE owner_id = ?)
+			SELECT * FROM replays WHERE project_id IN (SELECT id FROM projects WHERE owner_id = ?) AND (? = '' OR project_id = ?)
 			ORDER BY started_at DESC LIMIT 500
 		), users AS (
 			SELECT project_id, session_id, arg_max(user_id, timestamp) AS user_id FROM events
@@ -89,7 +89,7 @@ func (r *replayRepository) List(ownerID string) ([]domain.Replay, error) {
 			r.started_at, r.ended_at, r.chunks, r.bytes, r.clicks
 		FROM recent r LEFT JOIN users u USING (project_id, session_id)
 		ORDER BY r.started_at DESC
-	`, ownerID)
+	`, ownerID, projectID, projectID)
 	if err != nil {
 		return nil, err
 	}

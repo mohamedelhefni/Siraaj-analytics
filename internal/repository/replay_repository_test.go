@@ -67,7 +67,7 @@ func TestReplayRecordingsAreOwnerScopedAndReadBackWhole(t *testing.T) {
 		t.Fatalf("insert events: %v", err)
 	}
 
-	list, err := replays.List("owner")
+	list, err := replays.List("", "owner")
 	if err != nil || len(list) != 2 {
 		t.Fatalf("expected one recording per page load, got %+v, err %v", list, err)
 	}
@@ -76,7 +76,13 @@ func TestReplayRecordingsAreOwnerScopedAndReadBackWhole(t *testing.T) {
 		page1.EndedAt.Sub(page1.StartedAt) != time.Minute {
 		t.Fatalf("unexpected recording summary %+v", page1)
 	}
-	if others, _ := replays.List("intruder"); len(others) != 0 {
+	if scoped, _ := replays.List("site", "owner"); len(scoped) != 2 {
+		t.Fatalf("expected project filter to keep its recordings, got %+v", scoped)
+	}
+	if other, _ := replays.List("elsewhere", "owner"); len(other) != 0 {
+		t.Fatalf("expected project filter to drop other projects, got %+v", other)
+	}
+	if others, _ := replays.List("", "intruder"); len(others) != 0 {
 		t.Fatalf("another owner listed %+v", others)
 	}
 	if _, err := replays.Open("intruder", "site", "page-1"); !errors.Is(err, domain.ErrReplayNotFound) {

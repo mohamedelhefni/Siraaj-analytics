@@ -28,7 +28,7 @@ var replayIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 type ReplayService interface {
 	Ingest(projectID, sessionID, recordingID, url string, data []byte) error
-	List(ownerID string) ([]domain.Replay, error)
+	List(projectID, ownerID string) ([]domain.Replay, error)
 	// Open returns the recording as plain NDJSON.
 	Open(ownerID, projectID, recordingID string) (io.ReadCloser, error)
 	Delete(ownerID, projectID, recordingID string) error
@@ -60,8 +60,8 @@ func (s *replayService) Ingest(projectID, sessionID, recordingID, url string, da
 	return s.repo.Append(chunk, maxReplayFileGz)
 }
 
-func (s *replayService) List(ownerID string) ([]domain.Replay, error) {
-	return s.repo.List(ownerID)
+func (s *replayService) List(projectID, ownerID string) ([]domain.Replay, error) {
+	return s.repo.List(projectID, ownerID)
 }
 
 func (s *replayService) Open(ownerID, projectID, recordingID string) (io.ReadCloser, error) {

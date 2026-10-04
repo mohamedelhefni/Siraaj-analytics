@@ -9,6 +9,7 @@ type EventQuery struct {
 	Offset    int
 	OwnerID   string
 	UserID    string // optional: restrict to one visitor
+	ProjectID string // optional: restrict to one project
 }
 
 type Event struct {

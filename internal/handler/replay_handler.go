@@ -39,12 +39,12 @@ func (h *ReplayHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	writeReplayResult(w, http.StatusAccepted, map[string]bool{"stored": true}, err)
 }
 
-// Replays manages the signed-in user's recordings: GET list, DELETE ?project=&recording=.
+// Replays manages the signed-in user's recordings: GET list ?project=, DELETE ?project=&recording=.
 func (h *ReplayHandler) Replays(w http.ResponseWriter, r *http.Request) {
 	ownerID := middleware.PrincipalFromContext(r.Context()).UserID
 	switch r.Method {
 	case http.MethodGet:
-		replays, err := h.service.List(ownerID)
+		replays, err := h.service.List(r.URL.Query().Get("project"), ownerID)
 		writeReplayResult(w, http.StatusOK, replays, err)
 	case http.MethodDelete:
 		query := r.URL.Query()
