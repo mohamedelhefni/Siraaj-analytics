@@ -320,6 +320,14 @@ class AnalyticsCore {
         }
     }
 
+    /** Where the optional replay bundle sends recordings; null when tracking is off or no token is set. */
+    replayTarget(): { apiUrl: string; trackingToken: string; sessionId: string } | null {
+        if (!this.canTrack() || !this.config.trackingToken) return null;
+        if (!this.initialized) this.init({});
+        this.ensureActiveSession();
+        return { apiUrl: this.config.apiUrl, trackingToken: this.config.trackingToken, sessionId: this.sessionId! };
+    }
+
     private canTrack(): boolean {
         return typeof window !== 'undefined' && !this.isDestroyed;
     }

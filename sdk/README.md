@@ -104,6 +104,27 @@ analytics.pageView('/products/123', {
 });
 ```
 
+### Session Replay (optional)
+
+Replay ships as a separate ~23KB gzipped script, so the core SDK stays small. It needs a `trackingToken`.
+
+```html
+<script src="analytics.min.js"></script>
+<script src="replay.min.js"></script>
+<script>
+  SiraajAnalytics.analytics.init({ apiUrl: 'https://analytics.example.com', trackingToken: 'siraaj_trk_...' });
+  SiraajReplay.startReplay(SiraajAnalytics.analytics, { sampleRate: 0.2 }); // record 20% of sessions
+</script>
+```
+
+```javascript
+import { analytics } from '@hefni101/siraaj';
+import { startReplay } from '@hefni101/siraaj/replay';
+const stop = startReplay(analytics);
+```
+
+Inputs are always masked. Add `siraaj-block` to an element to hide it entirely, or `siraaj-mask` to mask its text. Recordings show up under **Replays** in the dashboard.
+
 ## 📥 Installation Options
 
 ### Option 1: CDN / Self-Hosted (Recommended)

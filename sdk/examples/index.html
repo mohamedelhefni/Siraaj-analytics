@@ -14,6 +14,9 @@
         .row { display: flex; gap: 8px; align-items: end; }
         .row label { flex: 1; margin: 0; }
         #status { font-size: 13px; color: #666; }
+        label.check { display: flex; gap: 8px; align-items: center; font-weight: 400; }
+        label.check input { display: inline; width: auto; margin: 0; }
+        .box { padding: 10px; border: 1px dashed #bbb; border-radius: 6px; margin-bottom: 10px; font-size: 13px; }
         pre { background: #111; color: #9f9; padding: 12px; border-radius: 8px; font-size: 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; }
     </style>
 </head>
@@ -27,6 +30,7 @@
             <label>API URL <input name="apiUrl" required placeholder="http://localhost:8080"></label>
             <label>Tracking token (Dashboard → Settings → Issue project token)
                 <input name="trackingToken" required placeholder="siraaj_trk_..."></label>
+            <label class="check"><input type="checkbox" name="replay"> Record session replay</label>
             <button>Save &amp; reload</button>
         </fieldset>
     </form>
@@ -44,7 +48,18 @@
     </fieldset>
 
     <fieldset>
-        <legend>3. Tools</legend>
+        <legend>3. Session replay</legend>
+        <p id="replayStatus">Tick "Record session replay" above and save to start recording.</p>
+        <label>Typed text is always masked <input placeholder="Type something secret"></label>
+        <div class="box siraaj-mask">This text has <code>siraaj-mask</code>, so it replays as stars.</div>
+        <div class="box siraaj-block">This box has <code>siraaj-block</code>, so it replays as an empty placeholder.</div>
+        <button class="secondary" id="toggleBox">Toggle a DOM change</button>
+        <button class="secondary" id="stopReplay">Stop recording</button>
+        <div id="changing" class="box" hidden>A DOM change the replay should show.</div>
+    </fieldset>
+
+    <fieldset>
+        <legend>4. Tools</legend>
         <button class="secondary" id="flush">Flush events now</button>
         <button class="secondary" id="resetSurveys">Forget seen surveys</button>
         <button class="secondary" id="clearLog">Clear log</button>
@@ -53,6 +68,7 @@
     <pre id="log"></pre>
 
     <script src="../analytics.js"></script>
+    <script src="../replay.min.js"></script>
     <script>
         const CONFIG_KEY = 'siraaj_playground_config';
         const logEl = document.getElementById('log');
@@ -69,6 +85,7 @@
         const saved = JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}');
         form.apiUrl.value = saved.apiUrl || 'http://localhost:8080';
         form.trackingToken.value = saved.trackingToken || '';
+        form.replay.checked = !!saved.replay;
 
         // The SDK loads surveys once at init, so config changes need a reload.
         form.onsubmit = event => {
@@ -76,6 +93,7 @@
             localStorage.setItem(CONFIG_KEY, JSON.stringify({
                 apiUrl: form.apiUrl.value.trim().replace(/\/$/, ''),
                 trackingToken: form.trackingToken.value.trim(),
+                replay: form.replay.checked,
             }));
             location.reload();
         };
@@ -83,7 +101,8 @@
         const analytics = SiraajAnalytics.analytics;
         const status = document.getElementById('status');
         if (saved.trackingToken) {
-            analytics.init({ ...saved, debug: true, autoTrack: true, bufferSize: 1, respectDoNotTrack: false });
+            const { replay, ...config } = saved;
+            analytics.init({ ...config, debug: true, autoTrack: true, bufferSize: 1, respectDoNotTrack: false });
             status.textContent = `Connected to ${saved.apiUrl}. Surveys load automatically.`;
             fetch(`${saved.apiUrl}/api/surveys/active`, { headers: { 'X-Siraaj-Token': saved.trackingToken } })
                 .then(r => r.json())
@@ -93,6 +112,29 @@
         } else {
             status.textContent = 'Enter your API URL and tracking token to start.';
         }
+
+        // Replay uploads go through fetch, so log their responses here.
+        const nativeFetch = window.fetch;
+        window.fetch = (input, init) => nativeFetch(input, init).then(response => {
+            if (String(input).includes('/api/replay?')) log('replay chunk →', response.status, `${init.body.size} bytes gzip`);
+            return response;
+        });
+
+        let stopReplay = () => {};
+        const replayStatus = document.getElementById('replayStatus');
+        if (saved.trackingToken && saved.replay) {
+            stopReplay = SiraajReplay.startReplay(analytics, { flushInterval: 2000 });
+            replayStatus.textContent = 'Recording. Chunks upload every 2s; open Dashboard → Replays to watch.';
+        }
+        document.getElementById('stopReplay').onclick = () => {
+            stopReplay();
+            stopReplay = () => {};
+            replayStatus.textContent = 'Recording stopped.';
+        };
+        document.getElementById('toggleBox').onclick = () => {
+            const box = document.getElementById('changing');
+            box.hidden = !box.hidden;
+        };
 
         const track = name => { analytics.track(name, { source: 'playground' }); log('track →', name); };
         document.querySelectorAll('[data-event]').forEach(button => button.onclick = () => track(button.dataset.event));

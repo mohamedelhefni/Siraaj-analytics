@@ -263,6 +263,13 @@
           this.log("Error during flush:", err);
         }
       }
+      /** Where the optional replay bundle sends recordings; null when tracking is off or no token is set. */
+      replayTarget() {
+        if (!this.canTrack() || !this.config.trackingToken) return null;
+        if (!this.initialized) this.init({});
+        this.ensureActiveSession();
+        return { apiUrl: this.config.apiUrl, trackingToken: this.config.trackingToken, sessionId: this.sessionId };
+      }
       canTrack() {
         return typeof window !== "undefined" && !this.isDestroyed;
       }

@@ -12,11 +12,16 @@
       "types": "./dist/analytics.d.ts",
       "import": "./dist/analytics.esm.js",
       "require": "./analytics.js"
+    },
+    "./replay": {
+      "types": "./dist/replay.d.ts",
+      "import": "./dist/replay.esm.js"
     }
   },
   "files": [
     "analytics.js",
     "analytics.min.js",
+    "replay.min.js",
     "dist",
     "README.md",
     "LICENSE"
@@ -40,7 +45,9 @@
   "author": "Mohamed Elhefni <mohamed.elhefni@outlook.com>",
   "license": "MIT",
   "devDependencies": {
+    "@rollup/plugin-node-resolve": "^16.0.3",
     "@rollup/plugin-terser": "^0.4.4",
+    "@rrweb/record": "2.1.7",
     "@size-limit/preset-small-lib": "^11.1.6",
     "esbuild": "^0.24.0",
     "rollup": "^4.24.4",
@@ -59,6 +66,11 @@
       "name": "Core (ESM)",
       "path": "dist/analytics.esm.js",
       "limit": "7 KB"
+    },
+    {
+      "name": "Replay (UMD)",
+      "path": "replay.min.js",
+      "limit": "30 KB"
     }
   ]
 }

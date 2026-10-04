@@ -1,6 +1,7 @@
 import terser from '@rollup/plugin-terser';
 import dts from 'rollup-plugin-dts';
 import esbuild from 'rollup-plugin-esbuild';
+import { nodeResolve } from '@rollup/plugin-node-resolve';
 
 const watch = Boolean(process.env.ROLLUP_WATCH);
 const minify = {
@@ -60,6 +61,16 @@ const builds = [
     },
 ];
 
+// Session replay ships separately so rrweb never weighs down the core SDK.
+builds.push({
+    input: 'src/replay/index.ts',
+    output: [
+        { file: 'replay.min.js', format: 'umd', name: 'SiraajReplay', plugins: [terser(minify)] },
+        { file: 'dist/replay.esm.js', format: 'esm', plugins: [terser({ ...minify, module: true })] },
+    ],
+    plugins: [nodeResolve({ browser: true }), esbuild({ target: 'es2020' })],
+});
+
 if (!watch) {
     builds.push({
         input: 'src/core/index.ts',
@@ -67,6 +78,10 @@ if (!watch) {
             file: 'dist/analytics.d.ts',
             format: 'esm',
         },
+        plugins: [dts()],
+    }, {
+        input: 'src/replay/index.ts',
+        output: { file: 'dist/replay.d.ts', format: 'esm' },
         plugins: [dts()],
     });
 }
