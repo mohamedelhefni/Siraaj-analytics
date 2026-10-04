@@ -199,14 +199,14 @@ func (s *authService) CreateTrackingToken(principal domain.Principal, projectID,
 	if err != nil {
 		return domain.IssuedTrackingToken{}, err
 	}
-	token := domain.TrackingToken{ID: id, UserID: principal.UserID, ProjectID: projectID, Name: name, Prefix: plain[:22], CreatedAt: time.Now().UTC()}
+	token := domain.TrackingToken{ID: id, UserID: principal.UserID, ProjectID: projectID, Name: name, Prefix: plain[:22], Token: plain, CreatedAt: time.Now().UTC()}
 	if err := s.repository.EnsureProjectOwner(principal.UserID, projectID); err != nil {
 		return domain.IssuedTrackingToken{}, err
 	}
 	if err := s.repository.CreateTrackingToken(token, trackingTokenHash(plain)); err != nil {
 		return domain.IssuedTrackingToken{}, err
 	}
-	return domain.IssuedTrackingToken{TrackingToken: token, Token: plain}, nil
+	return domain.IssuedTrackingToken{TrackingToken: token}, nil
 }
 
 func (s *authService) ListTrackingTokens(principal domain.Principal) ([]domain.TrackingToken, error) {

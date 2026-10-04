@@ -187,6 +187,59 @@ var migrations = []Migration{
 		ON CONFLICT DO NOTHING;`,
 		Down: `DROP TABLE IF EXISTS auth_bootstrap_guard;`,
 	},
+	{
+		Version:     8,
+		Description: "Create event-triggered surveys and responses",
+		Up: `CREATE SEQUENCE IF NOT EXISTS survey_id_sequence START 1;
+		CREATE SEQUENCE IF NOT EXISTS survey_response_id_sequence START 1;
+		CREATE TABLE IF NOT EXISTS surveys (
+			id UBIGINT PRIMARY KEY,
+			project_id VARCHAR NOT NULL,
+			name VARCHAR NOT NULL,
+			trigger_event VARCHAR NOT NULL,
+			questions VARCHAR NOT NULL,
+			active BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at TIMESTAMP NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS survey_responses (
+			id UBIGINT PRIMARY KEY,
+			survey_id UBIGINT NOT NULL,
+			user_id VARCHAR,
+			answers VARCHAR NOT NULL,
+			created_at TIMESTAMP NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_surveys_project ON surveys(project_id);
+		CREATE INDEX IF NOT EXISTS idx_survey_responses_survey ON survey_responses(survey_id, created_at);`,
+		Down: `DROP INDEX IF EXISTS idx_survey_responses_survey;
+		DROP INDEX IF EXISTS idx_surveys_project;
+		DROP TABLE IF EXISTS survey_responses;
+		DROP TABLE IF EXISTS surveys;
+		DROP SEQUENCE IF EXISTS survey_response_id_sequence;
+		DROP SEQUENCE IF EXISTS survey_id_sequence;`,
+	},
+	{
+		Version:     9,
+		Description: "Store public tracking keys so they can be copied again",
+		Up:          `ALTER TABLE tracking_tokens ADD COLUMN IF NOT EXISTS token VARCHAR;`,
+		// DuckDB refuses to drop columns from an indexed table, so the indexes are rebuilt around it.
+		Down: `DROP INDEX IF EXISTS idx_tracking_tokens_user;
+		DROP INDEX IF EXISTS idx_tracking_tokens_project;
+		ALTER TABLE tracking_tokens DROP COLUMN IF EXISTS token;
+		CREATE INDEX IF NOT EXISTS idx_tracking_tokens_user ON tracking_tokens(user_id, created_at);
+		CREATE INDEX IF NOT EXISTS idx_tracking_tokens_project ON tracking_tokens(project_id);`,
+	},
+	{
+		Version:     10,
+		Description: "Count survey impressions and dismissals",
+		// DuckDB cannot add columns with constraints, so these stay nullable and reads COALESCE them.
+		Up: `ALTER TABLE surveys ADD COLUMN IF NOT EXISTS shown_count UBIGINT DEFAULT 0;
+		ALTER TABLE surveys ADD COLUMN IF NOT EXISTS dismissed_count UBIGINT DEFAULT 0;`,
+		// DuckDB refuses to drop columns from an indexed table, so the index is rebuilt around it.
+		Down: `DROP INDEX IF EXISTS idx_surveys_project;
+		ALTER TABLE surveys DROP COLUMN IF EXISTS dismissed_count;
+		ALTER TABLE surveys DROP COLUMN IF EXISTS shown_count;
+		CREATE INDEX IF NOT EXISTS idx_surveys_project ON surveys(project_id);`,
+	},
 }
 
 func initMigrationTable(db *sql.DB) error {

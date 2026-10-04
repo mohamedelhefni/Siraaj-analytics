@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -131,7 +132,7 @@ func (r *authRepository) EnsureProjectOwner(userID, projectID string) error {
 		return err
 	}
 	if ownerID != userID {
-		return domain.ErrProjectUnavailable
+		return fmt.Errorf("%w: project ID %q is already used by another account, choose a different one", domain.ErrProjectUnavailable, projectID)
 	}
 	return nil
 }
@@ -155,13 +156,13 @@ func (r *authRepository) ListProjects(userID string) ([]string, error) {
 
 func (r *authRepository) CreateTrackingToken(token domain.TrackingToken, tokenHash string) error {
 	_, err := r.db.Exec(`INSERT INTO tracking_tokens
-		(id, user_id, project_id, name, token_hash, token_prefix, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, token.ID, token.UserID, token.ProjectID, token.Name, tokenHash, token.Prefix, token.CreatedAt)
+		(id, user_id, project_id, name, token_hash, token_prefix, token, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, token.ID, token.UserID, token.ProjectID, token.Name, tokenHash, token.Prefix, token.Token, token.CreatedAt)
 	return err
 }
 
 func (r *authRepository) ListTrackingTokens(userID string) ([]domain.TrackingToken, error) {
-	return r.listTrackingTokens(`SELECT id, user_id, project_id, name, token_prefix, created_at, last_used_at, revoked_at
+	return r.listTrackingTokens(`SELECT id, user_id, project_id, name, token_prefix, COALESCE(token, ''), created_at, last_used_at, revoked_at
 		FROM tracking_tokens WHERE user_id = ? ORDER BY created_at DESC`, userID)
 }
 
@@ -175,7 +176,7 @@ func (r *authRepository) listTrackingTokens(query string, arguments ...any) ([]d
 	for rows.Next() {
 		var token domain.TrackingToken
 		var lastUsed, revoked sql.NullTime
-		if err := rows.Scan(&token.ID, &token.UserID, &token.ProjectID, &token.Name, &token.Prefix, &token.CreatedAt, &lastUsed, &revoked); err != nil {
+		if err := rows.Scan(&token.ID, &token.UserID, &token.ProjectID, &token.Name, &token.Prefix, &token.Token, &token.CreatedAt, &lastUsed, &revoked); err != nil {
 			return nil, err
 		}
 		if lastUsed.Valid {

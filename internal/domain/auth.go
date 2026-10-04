@@ -42,11 +42,14 @@ type TrackingIdentity struct {
 }
 
 type TrackingToken struct {
-	ID         string     `json:"id"`
-	UserID     string     `json:"user_id"`
-	ProjectID  string     `json:"project_id"`
-	Name       string     `json:"name"`
-	Prefix     string     `json:"prefix"`
+	ID        string `json:"id"`
+	UserID    string `json:"user_id"`
+	ProjectID string `json:"project_id"`
+	Name      string `json:"name"`
+	Prefix    string `json:"prefix"`
+	// Token is a public client key (it ships in the SDK), so it is stored and
+	// returned in full. Empty for keys issued before migration 9.
+	Token      string     `json:"token,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
@@ -54,5 +57,4 @@ type TrackingToken struct {
 
 type IssuedTrackingToken struct {
 	TrackingToken
-	Token string `json:"token"`
 }
