@@ -158,6 +158,11 @@ func main() {
 	authRepo := repository.NewAuthRepository(db)
 	authService := service.NewAuthService(authRepo, authSecret(), authTokenTTL())
 	authHandler := handler.NewAuthHandler(authService)
+	replayDir := os.Getenv("REPLAY_DIR")
+	if replayDir == "" {
+		replayDir = "data/replays"
+	}
+	replayHandler := handler.NewReplayHandler(service.NewReplayService(repository.NewReplayRepository(db, replayDir)))
 
 	// Setup graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -219,6 +224,9 @@ func main() {
 	mux.Handle("/api/surveys/active", tracking(surveyHandler.Active))
 	mux.Handle("/api/surveys/respond", tracking(surveyHandler.Respond))
 	mux.Handle("/api/surveys/event", tracking(surveyHandler.Event))
+	mux.Handle("/api/replay", tracking(replayHandler.Ingest))
+	mux.Handle("/api/replays", access(replayHandler.Replays))
+	mux.Handle("/api/replays/recording", access(replayHandler.Recording))
 
 	mux.Handle("/api/stats/overview", access(eventHandler.GetTopStats))
 	mux.Handle("/api/stats/timeline", access(eventHandler.GetTimeline))

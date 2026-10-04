@@ -240,6 +240,49 @@ var migrations = []Migration{
 		ALTER TABLE surveys DROP COLUMN IF EXISTS shown_count;
 		CREATE INDEX IF NOT EXISTS idx_surveys_project ON surveys(project_id);`,
 	},
+	{
+		Version:     11,
+		Description: "Index session replays stored as gzip files",
+		Up: `CREATE TABLE IF NOT EXISTS replay_sessions (
+			project_id VARCHAR NOT NULL,
+			session_id VARCHAR NOT NULL,
+			url VARCHAR,
+			started_at TIMESTAMP NOT NULL,
+			last_seen_at TIMESTAMP NOT NULL,
+			chunks UBIGINT NOT NULL,
+			bytes UBIGINT NOT NULL,
+			PRIMARY KEY (project_id, session_id)
+		);`,
+		Down: `DROP TABLE IF EXISTS replay_sessions;`,
+	},
+	{
+		Version:     12,
+		Description: "Index replays per page load with event-time durations",
+		Up: `DROP TABLE IF EXISTS replay_sessions;
+		CREATE TABLE IF NOT EXISTS replays (
+			project_id VARCHAR NOT NULL,
+			recording_id VARCHAR NOT NULL,
+			session_id VARCHAR NOT NULL,
+			url VARCHAR,
+			started_at TIMESTAMP NOT NULL,
+			ended_at TIMESTAMP NOT NULL,
+			chunks UBIGINT NOT NULL,
+			bytes UBIGINT NOT NULL,
+			clicks UBIGINT NOT NULL,
+			PRIMARY KEY (project_id, recording_id)
+		);`,
+		Down: `DROP TABLE IF EXISTS replays;
+		CREATE TABLE IF NOT EXISTS replay_sessions (
+			project_id VARCHAR NOT NULL,
+			session_id VARCHAR NOT NULL,
+			url VARCHAR,
+			started_at TIMESTAMP NOT NULL,
+			last_seen_at TIMESTAMP NOT NULL,
+			chunks UBIGINT NOT NULL,
+			bytes UBIGINT NOT NULL,
+			PRIMARY KEY (project_id, session_id)
+		);`,
+	},
 }
 
 func initMigrationTable(db *sql.DB) error {

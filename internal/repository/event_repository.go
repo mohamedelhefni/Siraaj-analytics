@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -284,11 +285,12 @@ func (r *eventRepository) GetEvents(eventQuery domain.EventQuery) (map[string]an
 		FROM events
 		WHERE date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)
 			AND project_id IN (SELECT id FROM projects WHERE owner_id = ?)
+			AND (? = '' OR user_id = ?)
 		ORDER BY timestamp DESC
 		LIMIT ? OFFSET ?
 	`
 
-	rows, err := r.db.Query(query, eventQuery.StartDate, eventQuery.EndDate, eventQuery.OwnerID, eventQuery.Limit, eventQuery.Offset)
+	rows, err := r.db.Query(query, eventQuery.StartDate, eventQuery.EndDate, eventQuery.OwnerID, eventQuery.UserID, eventQuery.UserID, eventQuery.Limit, eventQuery.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -316,18 +318,43 @@ func (r *eventRepository) GetEvents(eventQuery domain.EventQuery) (map[string]an
 	// Get total count
 	var total int64
 	countQuery := `SELECT COUNT(*) FROM events WHERE date_day >= CAST(? AS DATE) AND date_day <= CAST(? AS DATE)
-		AND project_id IN (SELECT id FROM projects WHERE owner_id = ?)`
-	err = r.db.QueryRow(countQuery, eventQuery.StartDate, eventQuery.EndDate, eventQuery.OwnerID).Scan(&total)
+		AND project_id IN (SELECT id FROM projects WHERE owner_id = ?) AND (? = '' OR user_id = ?)`
+	err = r.db.QueryRow(countQuery, eventQuery.StartDate, eventQuery.EndDate, eventQuery.OwnerID, eventQuery.UserID, eventQuery.UserID).Scan(&total)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
+	result := map[string]any{
 		"events": events,
 		"total":  total,
 		"limit":  eventQuery.Limit,
 		"offset": eventQuery.Offset,
-	}, nil
+	}
+
+	// Per-user view: include their survey answers so one call shows the whole journey.
+	if eventQuery.UserID != "" {
+		rows, err := r.db.Query(`
+			SELECT sr.survey_id, s.name, CAST(sr.answers AS VARCHAR), sr.created_at
+			FROM survey_responses sr JOIN surveys s ON s.id = sr.survey_id
+			WHERE sr.user_id = ? AND s.project_id IN (SELECT id FROM projects WHERE owner_id = ?)
+			ORDER BY sr.created_at DESC LIMIT 1000`, eventQuery.UserID, eventQuery.OwnerID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		responses := []map[string]any{}
+		for rows.Next() {
+			var id uint64
+			var name, answers string
+			var at time.Time
+			if err := rows.Scan(&id, &name, &answers, &at); err != nil {
+				return nil, err
+			}
+			responses = append(responses, map[string]any{"survey_id": id, "survey_name": name, "answers": json.RawMessage(answers), "created_at": at})
+		}
+		result["survey_responses"] = responses
+	}
+	return result, nil
 }
 
 func (r *eventRepository) GetStats(startDate, endDate time.Time, limit int, filters map[string]string) (map[string]any, error) {

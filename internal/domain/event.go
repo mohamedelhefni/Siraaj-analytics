@@ -8,6 +8,7 @@ type EventQuery struct {
 	Limit     int
 	Offset    int
 	OwnerID   string
+	UserID    string // optional: restrict to one visitor
 }
 
 type Event struct {

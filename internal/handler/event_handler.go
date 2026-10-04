@@ -286,6 +286,7 @@ func (h *EventHandler) GetEvents(w http.ResponseWriter, r *http.Request) {
 
 	events, err := h.service.GetEvents(domain.EventQuery{
 		StartDate: startDate, EndDate: endDate, Limit: limit, Offset: offset, OwnerID: tenantOwnerID(r),
+		UserID: r.URL.Query().Get("user_id"),
 	})
 	if err != nil {
 		log.Printf("Error getting events: %v", err)
