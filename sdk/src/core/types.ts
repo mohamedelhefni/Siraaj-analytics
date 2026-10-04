@@ -14,6 +14,14 @@ export interface AnalyticsConfig {
   maxQueueSize?: number; // Maximum failed events to queue
   enablePerformanceTracking?: boolean; // Track Web Vitals
   respectDoNotTrack?: boolean; // Respect DNT header
+  surveys?: boolean; // Show surveys configured in the dashboard (needs trackingToken)
+}
+
+export interface Survey {
+  id: number;
+  name: string;
+  trigger_event: string;
+  questions: { type: 'rating' | 'choice' | 'text'; text: string; options?: string[] }[];
 }
 
 export interface EventData {

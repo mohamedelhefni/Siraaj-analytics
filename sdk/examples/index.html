@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Siraaj SDK Playground</title>
+    <style>
+        body { font: 15px/1.5 system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; color: #222; }
+        fieldset { border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin-bottom: 20px; }
+        label { display: block; margin-bottom: 10px; font-size: 13px; font-weight: 600; }
+        input { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 8px; font: inherit; border: 1px solid #ccc; border-radius: 6px; }
+        button { padding: 8px 14px; margin: 0 6px 6px 0; font: inherit; border: 1px solid #222; border-radius: 6px; background: #222; color: #fff; cursor: pointer; }
+        button.secondary { background: #fff; color: #222; }
+        .row { display: flex; gap: 8px; align-items: end; }
+        .row label { flex: 1; margin: 0; }
+        #status { font-size: 13px; color: #666; }
+        pre { background: #111; color: #9f9; padding: 12px; border-radius: 8px; font-size: 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>Siraaj SDK Playground</h1>
+    <p id="status"></p>
+
+    <form id="config">
+        <fieldset>
+            <legend>1. Connect</legend>
+            <label>API URL <input name="apiUrl" required placeholder="http://localhost:8080"></label>
+            <label>Tracking token (Dashboard → Settings → Issue project token)
+                <input name="trackingToken" required placeholder="siraaj_trk_..."></label>
+            <button>Save &amp; reload</button>
+        </fieldset>
+    </form>
+
+    <fieldset>
+        <legend>2. Fire events</legend>
+        <p>Use the same event name as a survey's trigger to show it.</p>
+        <button data-event="page_view">page_view</button>
+        <button data-event="checkout">checkout</button>
+        <button data-event="signup">signup</button>
+        <div class="row">
+            <label>Custom event <input id="customEvent" placeholder="my_event"></label>
+            <button id="fireCustom">Track</button>
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>3. Tools</legend>
+        <button class="secondary" id="flush">Flush events now</button>
+        <button class="secondary" id="resetSurveys">Forget seen surveys</button>
+        <button class="secondary" id="clearLog">Clear log</button>
+    </fieldset>
+
+    <pre id="log"></pre>
+
+    <script src="../analytics.js"></script>
+    <script>
+        const CONFIG_KEY = 'siraaj_playground_config';
+        const logEl = document.getElementById('log');
+        const log = (...args) => {
+            logEl.textContent += args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ') + '\n';
+            logEl.scrollTop = logEl.scrollHeight;
+        };
+
+        // Mirror the SDK's debug output into the page.
+        const consoleLog = console.log;
+        console.log = (...args) => { consoleLog(...args); if (args[0] === '[Siraaj]') log(...args.slice(1)); };
+
+        const form = document.getElementById('config');
+        const saved = JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}');
+        form.apiUrl.value = saved.apiUrl || 'http://localhost:8080';
+        form.trackingToken.value = saved.trackingToken || '';
+
+        // The SDK loads surveys once at init, so config changes need a reload.
+        form.onsubmit = event => {
+            event.preventDefault();
+            localStorage.setItem(CONFIG_KEY, JSON.stringify({
+                apiUrl: form.apiUrl.value.trim().replace(/\/$/, ''),
+                trackingToken: form.trackingToken.value.trim(),
+            }));
+            location.reload();
+        };
+
+        const analytics = SiraajAnalytics.analytics;
+        const status = document.getElementById('status');
+        if (saved.trackingToken) {
+            analytics.init({ ...saved, debug: true, autoTrack: true, bufferSize: 1, respectDoNotTrack: false });
+            status.textContent = `Connected to ${saved.apiUrl}. Surveys load automatically.`;
+            fetch(`${saved.apiUrl}/api/surveys/active`, { headers: { 'X-Siraaj-Token': saved.trackingToken } })
+                .then(r => r.json())
+                .then(surveys => log('Active surveys:', Array.isArray(surveys)
+                    ? surveys.map(s => `#${s.id} "${s.name}" on ${s.trigger_event}`) : surveys))
+                .catch(err => log('Could not load surveys:', err.message));
+        } else {
+            status.textContent = 'Enter your API URL and tracking token to start.';
+        }
+
+        const track = name => { analytics.track(name, { source: 'playground' }); log('track →', name); };
+        document.querySelectorAll('[data-event]').forEach(button => button.onclick = () => track(button.dataset.event));
+        document.getElementById('fireCustom').onclick = () => {
+            const name = document.getElementById('customEvent').value.trim();
+            if (name) track(name);
+        };
+        document.getElementById('flush').onclick = () => analytics.flush().then(() => log('Flushed'));
+        document.getElementById('resetSurveys').onclick = () => {
+            Object.keys(localStorage).filter(k => k.startsWith('siraaj_analytics_survey_')).forEach(k => localStorage.removeItem(k));
+            log('Seen surveys forgotten — fire the trigger event again.');
+        };
+        document.getElementById('clearLog').onclick = () => { logEl.textContent = ''; };
+    </script>
+</body>
+</html>

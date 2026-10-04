@@ -25,6 +25,7 @@
         this.rejectionHandler = null;
         this.visibilityHandler = null;
         this.beforeUnloadHandler = null;
+        // events seen while surveys load
         // Constants
         this.SESSION_TIMEOUT = 30 * 60 * 1e3;
         this.MAX_BUFFER_SIZE = 100;
@@ -47,7 +48,8 @@
           sampling: config.sampling || 1,
           maxQueueSize: config.maxQueueSize || this.MAX_FAILED_QUEUE_SIZE,
           enablePerformanceTracking: config.enablePerformanceTracking || false,
-          respectDoNotTrack: config.respectDoNotTrack !== false
+          respectDoNotTrack: config.respectDoNotTrack !== false,
+          surveys: config.surveys !== false
         };
         if (typeof window === "undefined") {
           return;
@@ -92,6 +94,9 @@
         if (this.failedQueue.length > 0) {
           this.processFailedQueue();
         }
+        if (this.config.surveys && this.config.trackingToken && !this.surveyEvents) {
+          this.loadSurveys();
+        }
         this.initialized = true;
         this.log("(Re)initialized");
       }
@@ -123,6 +128,8 @@
         };
         this.log("Event:", eventName);
         this.addToBuffer(event);
+        if (this.surveys) this.maybeShowSurvey(eventName);
+        else this.surveyEvents?.add(eventName);
       }
       pageView(url = null, properties = {}) {
         if (!this.canTrack()) return;
@@ -758,6 +765,136 @@
         } catch (err) {
           this.log("Storage error:", err);
         }
+      }
+      async loadSurveys() {
+        this.surveyEvents = /* @__PURE__ */ new Set();
+        try {
+          const response = await fetch(`${this.config.apiUrl}/api/surveys/active`, {
+            headers: { "X-Siraaj-Token": this.config.trackingToken }
+          });
+          this.surveys = response.ok ? await response.json() : [];
+        } catch (err) {
+          this.surveys = [];
+          this.log("Survey load error:", err);
+        }
+        this.surveyEvents.forEach((name) => this.maybeShowSurvey(name));
+      }
+      maybeShowSurvey(eventName) {
+        const survey = this.surveys?.find((s) => s.trigger_event === eventName);
+        if (!survey || typeof document === "undefined" || document.getElementById("siraaj-survey")) return;
+        const seenKey = this.STORAGE_PREFIX + "survey_" + survey.id;
+        try {
+          if (localStorage.getItem(seenKey)) return;
+          localStorage.setItem(seenKey, "1");
+        } catch {
+          return;
+        }
+        this.showSurvey(survey);
+      }
+      showSurvey(survey) {
+        const el = (tag, className = "", text = "") => {
+          const node = document.createElement(tag);
+          node.className = className;
+          node.textContent = text;
+          return node;
+        };
+        const form = el("form");
+        form.id = "siraaj-survey";
+        form.setAttribute("aria-label", survey.name);
+        const S = "#siraaj-survey";
+        form.append(el("style", "", `
+${S}{position:fixed;bottom:20px;right:20px;z-index:2147483647;width:340px;max-width:calc(100vw - 40px);box-sizing:border-box;padding:20px;background:#fff;color:#111827;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 12px 32px rgba(0,0,0,.12),0 2px 6px rgba(0,0,0,.06);font:14px/1.45 system-ui,-apple-system,sans-serif;animation:siraaj-in .25s ease-out}
+${S} *{box-sizing:border-box}
+@keyframes siraaj-in{from{opacity:0;transform:translateY(12px)}}
+${S} .sj-close{position:absolute;top:10px;right:10px;width:28px;height:28px;border:0;border-radius:50%;background:none;color:#6b7280;font-size:20px;line-height:1;cursor:pointer}
+${S} .sj-close:hover{background:#f3f4f6;color:#111827}
+${S} fieldset{border:0;margin:0 0 16px;padding:0;min-width:0}
+${S} legend{font-weight:600;margin-bottom:10px;padding:0 28px 0 0}
+${S} textarea{width:100%;padding:10px;font:inherit;color:inherit;border:1px solid #d1d5db;border-radius:10px;resize:vertical;outline:none}
+${S} textarea:focus{border-color:#111827;box-shadow:0 0 0 3px rgba(17,24,39,.1)}
+${S} .sj-opts{display:flex;flex-direction:column;gap:6px}
+${S} .sj-opt{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:10px;cursor:pointer;transition:border-color .15s,background .15s}
+${S} .sj-opt:hover{background:#f9fafb}
+${S} .sj-opt:has(input:checked){border-color:#111827;background:#f9fafb}
+${S} .sj-opt input{width:20px;height:20px;margin:0;accent-color:#111827;cursor:pointer}
+${S} .sj-rating{display:flex;justify-content:space-between;gap:6px}
+${S} .sj-emoji{flex:1;cursor:pointer;text-align:center}
+${S} .sj-emoji input{position:absolute;opacity:0;pointer-events:none}
+${S} .sj-emoji span{display:block;padding:6px 0;font-size:28px;border-radius:12px;filter:grayscale(1);opacity:.55;transition:transform .15s,filter .15s,opacity .15s,background .15s}
+${S} .sj-emoji:hover span{filter:none;opacity:1;transform:scale(1.15)}
+${S} .sj-emoji input:checked+span{filter:none;opacity:1;transform:scale(1.2);background:#f3f4f6}
+${S} .sj-emoji input:focus-visible+span{outline:2px solid #111827}
+${S} .sj-send{width:100%;padding:10px 14px;border:0;border-radius:10px;background:#111827;color:#fff;font:inherit;font-weight:600;cursor:pointer}
+${S} .sj-send:hover{background:#374151}
+${S} .sj-mark{display:block;margin-top:12px;text-align:center;font-size:11px;color:#9ca3af;text-decoration:none}
+${S} .sj-mark:hover{color:#4b5563}
+`));
+        const close = el("button", "sj-close", "\xD7");
+        close.type = "button";
+        close.setAttribute("aria-label", "Close survey");
+        form.append(close);
+        const faces = ["\u{1F61E}", "\u{1F641}", "\u{1F610}", "\u{1F642}", "\u{1F604}"];
+        survey.questions.forEach((question, i) => {
+          const field = el("fieldset");
+          field.append(el("legend", "", question.text));
+          if (question.type === "text") {
+            const input = el("textarea");
+            input.name = "q" + i;
+            input.rows = 3;
+            input.maxLength = 2e3;
+            input.placeholder = "Type your answer...";
+            field.append(input);
+          } else {
+            const rating = question.type === "rating";
+            const group = el("div", rating ? "sj-rating" : "sj-opts");
+            (rating ? ["1", "2", "3", "4", "5"] : question.options || []).forEach((value, j) => {
+              const label = el("label", rating ? "sj-emoji" : "sj-opt");
+              const input = el("input");
+              input.type = "radio";
+              input.name = "q" + i;
+              input.value = value;
+              if (rating) {
+                label.title = value + " / 5";
+                input.setAttribute("aria-label", value + " out of 5");
+              }
+              label.append(input, rating ? el("span", "", faces[j]) : el("span", "", value));
+              group.append(label);
+            });
+            field.append(group);
+          }
+          form.append(field);
+        });
+        form.append(el("button", "sj-send", "Send"));
+        const mark = el("a", "sj-mark", "Powered by Siraaj");
+        mark.href = "https://github.com/mohamedelhefni/siraaj";
+        mark.target = "_blank";
+        mark.rel = "noopener";
+        form.append(mark);
+        close.onclick = () => {
+          form.remove();
+          this.track("survey_dismissed", { survey_id: survey.id });
+          this.surveyPost("event", { survey_id: survey.id, kind: "dismissed" });
+        };
+        form.onsubmit = (event) => {
+          event.preventDefault();
+          const data = new FormData(form);
+          const answers = survey.questions.map((_, i) => String(data.get("q" + i) || "").trim());
+          if (answers.every((answer) => !answer)) return;
+          form.remove();
+          this.track("survey_sent", { survey_id: survey.id });
+          this.surveyPost("respond", { survey_id: survey.id, user_id: this.userId || this.getUserId(), answers });
+        };
+        document.body.append(form);
+        this.track("survey_shown", { survey_id: survey.id });
+        this.surveyPost("event", { survey_id: survey.id, kind: "shown" });
+      }
+      surveyPost(path, body) {
+        fetch(`${this.config.apiUrl}/api/surveys/${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Siraaj-Token": this.config.trackingToken },
+          body: JSON.stringify(body),
+          keepalive: true
+        }).catch((err) => this.log("Survey request error:", err));
       }
       log(...args) {
         if (this.config.debug && typeof console !== "undefined") {

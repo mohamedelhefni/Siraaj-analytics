@@ -53,12 +53,12 @@
     {
       "name": "Core (UMD)",
       "path": "analytics.min.js",
-      "limit": "5 KB"
+      "limit": "7 KB"
     },
     {
       "name": "Core (ESM)",
       "path": "dist/analytics.esm.js",
-      "limit": "5 KB"
+      "limit": "7 KB"
     }
   ]
 }
